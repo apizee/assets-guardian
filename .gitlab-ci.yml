@@ -14,7 +14,7 @@ variables:
   UV_IMAGE: "ghcr.io/astral-sh/uv:python3.13-bookworm-slim"
   GITLEAKS_IMAGE: "zricethezav/gitleaks:v8.30.1"
   HADOLINT_IMAGE: "hadolint/hadolint:v2.14.0-debian"
-  TRIVY_IMAGE: "aquasec/trivy:0.58.2"
+  TRIVY_IMAGE: "aquasec/trivy:0.72.0"
   TRUFFLEHOG_VERSION: "v3.94.2"
   REGCLIENT_VERSION: "v0.8.0"
 
@@ -68,9 +68,8 @@ check-version-match:
     - |
       PROJECT_VERSION="$(uv version --short)"
       TAG_VERSION="${CI_COMMIT_TAG#v}"
-      TAG_BASE="$(echo "${TAG_VERSION}" | sed -E 's/-?rc[0-9]+$//')"
-      PROJECT_BASE="$(echo "${PROJECT_VERSION}" | sed -E 's/-?rc[0-9]+$//')"
-      if [ "${TAG_BASE}" != "${PROJECT_BASE}" ]; then
+      TAG_BASE="$(echo "${TAG_VERSION}" | sed -E 's/-rc[0-9]+$//')"
+      if [ "${TAG_BASE}" != "${PROJECT_VERSION}" ]; then
         echo "Tag (${CI_COMMIT_TAG}) does not match pyproject.toml version (${PROJECT_VERSION})"
         echo "Bump the version first ('make version-bump') then tag."
         exit 1

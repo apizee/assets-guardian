@@ -14,8 +14,6 @@ class SeverityType(StrEnum):
 
 
 class RuleCategory(StrEnum):
-    # TODO: Extend if new rule families emerge
-    #       (e.g., "anomaly" for behavioral detection).
     COMPARISON = "comparison"
     COMPLIANCE = "compliance"
     MATRIX = "matrix"

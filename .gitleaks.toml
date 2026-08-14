@@ -20,6 +20,7 @@ tags = ["email", "pii"]
     '''pyproject\.toml''',
     '''setup\.py''',
     '''setup\.cfg''',
+    '''tests/.*''',
   ]
   regexes = [
     '''(?i)@example\.(?:com|org|net)''',

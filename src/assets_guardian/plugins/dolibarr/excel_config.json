@@ -49,6 +49,11 @@
         "width": 20
       },
       {
+        "column_name": "Full Name",
+        "field": "name",
+        "width": 25
+      },
+      {
         "column_name": "Email",
         "field": "email",
         "width": 30

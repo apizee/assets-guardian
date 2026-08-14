@@ -4,25 +4,81 @@ define: &default_rules
     severity: "CRITICAL"
   DEFAULT-002:
     description: "Inactivity threshold exceeded for an account."
-    severity: "HIGH"
-    inactivity_threshold_days_warning: 90
-    inactivity_threshold_days_danger: 180
-    inactivity_threshold_days_critical: 365
+    inactivity_threshold_days:
+      - severity: "WARNING"
+        days: 90
+      - severity: "DANGER"
+        days: 180
+      - severity: "CRITICAL"
+        days: 365
   DEFAULT-003:
     description: "Account with excessive permissions."
-    severity: "HIGH"
+    severity: "DANGER"
   DEFAULT-004:
     description: "Connection from an unusual location."
     company_network_ip: "192.168.1.2"
+    severity: "WARNING"
+  CTRL_HUMAN_LAST_NAME:
+    description: "Last name must be entered entirely in uppercase, while preserving accents and special characters (e.g. hyphens)."
+    severity: "WARNING"
+  CTRL_HUMAN_FIRST_NAME:
+    description: "First name must be entered in lowercase, with an initial capital letter for each component, while preserving accents and special characters (e.g. hyphens)."
+    severity: "WARNING"
+  CTRL_HUMAN_FULL_NAME:
+    description: "Full name is the concatenation of the first name and last name, separated by a space. For third-party human identities, the full name is suffixed with ' (EXT)'."
+    severity: "WARNING"
+  CTRL_HUMAN_USERNAME:
+    description: "Username must be unique, composed of the first letter of the first name (lowercase) followed by the last name (lowercase), without spaces or special characters, plus a sequential number in case of a duplicate. Third-party human identities require an '-ext' suffix."
+    severity: "DANGER"
+  CTRL_HUMAN_EMAIL:
+    description: "Email address is composed of the first name and last name separated by a dot, both in lowercase, with spaces/hyphens removed and accented letters replaced by their unaccented equivalent. Third-party human identities require a '.ext' suffix."
+    severity: "DANGER"
+    email_domain: "apizee.com"
+  CTRL_HUMAN_CREATION:
+    description: "The date the identity was created must be recorded, including at least the current date."
+    severity: "DANGER"
+  CTRL_HUMAN_JOB:
+    description: "The job title held within the organization must be set, defining the person's role and missions."
+    severity: "WARNING"
+  CTRL_SERVICE_FULL_NAME:
+    description: "No formatting constraint is required, but the full name must be suffixed with ' (EXT)' for third-party non-human identities."
+    severity: "WARNING"
+  CTRL_SERVICE_USERNAME:
+    description: "Username must be unique and descriptive, entered in lowercase without special characters (accents, etc.), using hyphens to separate words."
+    severity: "DANGER"
+  CTRL_SERVICE_CREATION:
+    description: "The date the identity was created must always be recorded, quantified exactly."
+    severity: "DANGER"
+  CTRL_SERVICE_DESCRIPTION:
+    description: "A concise description must be set, clear enough for a non-technical user to understand the identity's purpose."
+    severity: "WARNING"
+  CTRL_GENERIC_FULL_NAME:
+    description: "Generic identities must never be used by third-party actors."
+    severity: "DANGER"
+  CTRL_GENERIC_USERNAME:
+    description: "Username must be unique, entered in lowercase without special characters (accents, etc.), using hyphens to separate words."
+    severity: "DANGER"
+  CTRL_GENERIC_CREATOR:
+    description: "The operational administrator who created the identity should be recorded, identified via a unique attribute."
+    severity: "WARNING"
+  CTRL_GENERIC_CREATION:
+    description: "The date the identity was created must be recorded, including at least the current date."
+    severity: "DANGER"
+  CTRL_GENERIC_DESCRIPTION:
+    description: "A clear description must be set, specifying the business rationale, the constraints that led to its creation, and the scope of its use."
+    severity: "DANGER"
 
 gitlab:
   <<: *default_rules
   COMPLIANCE-001:
-    description: "Connection from an unusual location."
-    severity: "HIGH"
+    description: "Gitlab mailbox not listed in employees.json."
+    severity: "WARNING"
   MATRIX-001:
-    description: "User not in the right group"
-    severity: "HIGH"
+    description: "GitLab instance administrator access not authorized by the matrix."
+    severity: "DANGER"
+  MATRIX-002:
+    description: "GitLab group or project role exceeding the level authorized by the matrix."
+    severity: "DANGER"
   COMPARE-001:
     name: "Additions of GitLab users"
     severity: "INFO"
@@ -30,14 +86,53 @@ gitlab:
     name: "Deletions of GitLab users"
     severity: "WARNING"
   COMPARE-003:
-    name: "gitlab status changes"
+    name: "Gitlab status changes"
     severity: "WARNING"
   COMPARE-004:
-    name: "gitlab privilege changes"
+    name: "Gitlab privilege changes"
     severity: "DANGER"
 
 dolibarr:
   <<: *default_rules
+  DOLIBARR-005:
+    description: "Lists disabled user accounts in Dolibarr."
+    severity: "INFO"
+  COMPLIANCE-001:
+    description: "Dolibarr mailbox not listed in employees.json."
+    severity: "WARNING"
+  MATRIX-001:
+    description: "Dolibarr superadmin access not authorized by the matrix."
+    severity: "CRITICAL"
+  MATRIX-002:
+    description: "Rights on critical Dolibarr modules not authorized by the matrix."
+    severity: "DANGER"
+  COMPARE-001:
+    description: "Additions of Dolibarr users"
+    severity: "INFO"
+  COMPARE-002:
+    description: "Deletions of Dolibarr users"
+    severity: "WARNING"
 
 microsoft365:
   <<: *default_rules
+  COMPARE-001:
+    description: "Additions of Microsoft365 users"
+    severity: "INFO"
+  COMPARE-002:
+    description: "Deletions of Microsoft365 users"
+    severity: "WARNING"
+  COMPARE-003:
+    description: "Microsoft365 status changes"
+    severity: "WARNING"
+  COMPARE-004:
+     description: "MFA status change on Microsoft365"
+     severity: "DANGER"
+  MATRIX-001:
+   description: "Microsoft365 group membership not authorized by the matrix."
+   severity: "DANGER"
+  COMPLIANCE-001:
+    description: "Microsoft365 users has an administrator role."
+    severity: "INFO"
+  COMPLIANCE-002:
+    description: "Microsoft365 mailbox not listed in employees.json."
+    severity: "WARNING"

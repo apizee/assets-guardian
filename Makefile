@@ -101,6 +101,8 @@ security-gitleaks: ## Secret scanning with gitleaks
 	@printf "\033[36m▶\033[0m Secret scanning with gitleaks...\n"
 	@uv run pre-commit run gitleaks --all-files
 	@printf "\033[32m✓\033[0m Gitleaks: no secrets detected.\n"
+#docker run --rm -v "$(pwd)":/repo -w /repo --entrypoint "" zricethezav/gitleaks:v8.30.1 gitleaks detect --source=/repo --config=/repo/.gitleaks.toml --report-path=/repo/gitleaks-report.json --report-format=json --verbose --redact
+#docker run --rm -v "$(pwd)":/repo -w /repo --entrypoint "" zricethezav/gitleaks:v8.30.1 gitleaks detect --source=/repo --config=/repo/.gitleaks.toml --report-path=/repo/gitleaks-report.json --report-format=json --verbose --redact --log-opts="-5"
 
 security-hadolint: ## Dockerfile linting with hadolint
 	@printf "\033[36m▶\033[0m Linting Dockerfile with hadolint...\n"
@@ -113,7 +115,7 @@ security-trivy: docker-build ## Build then scan the 'assets-guardian' Docker ima
 		-v /var/run/docker.sock:/var/run/docker.sock \
 		-v trivy-cache:/root/.cache/trivy \
 		-v $(shell pwd)/.trivyignore.yml:/.trivyignore.yml:ro \
-		aquasec/trivy:0.58.2 image \
+		aquasec/trivy:0.72.0 image \
 		--exit-code 1 \
 		--scanners vuln \
 		--severity HIGH,CRITICAL \

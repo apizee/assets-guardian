@@ -20,14 +20,14 @@ class PathsConfig:
     Attributes:
         excel (Location): Path to the Excel repository.
         pdf (Location): Path to the PDF report.
-        rules_config (Location): Path to the rules configuration file.
+        rules (Location): Path to the rules configuration file.
         excel_config (Location): Path to the Excel rules configuration file.
         pdf_config (Location): Path to the PDF rules configuration file.
     """
 
     excel: Location
     pdf: Location
-    rules_config: Location
+    rules: Location
     excel_config: Location
     pdf_config: Location
     employees: Location
@@ -37,7 +37,7 @@ class PathsConfig:
         """Validates the configuration of file paths."""
         validate_field(self, "excel", Location)
         validate_field(self, "pdf", Location)
-        validate_field(self, "rules_config", Location)
+        validate_field(self, "rules", Location)
         validate_field(self, "excel_config", Location)
         validate_field(self, "pdf_config", Location)
         validate_field(self, "employees", Location)
@@ -45,7 +45,6 @@ class PathsConfig:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any], config_path: str) -> "PathsConfig":
-
         return cls(
             excel=Location(
                 get_config_value(
@@ -63,9 +62,9 @@ class PathsConfig:
                     env_name="PATH_PDF",
                 )
             ),
-            rules_config=Location(
+            rules=Location(
                 get_config_value(
-                    "rules_config",
+                    "rules",
                     data,
                     default=DEFAULT_PATH_RULES,
                     env_name="PATH_RULES",

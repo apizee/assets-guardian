@@ -9,14 +9,14 @@ from assets_guardian.core.domain.models.validator import validate_field
 
 
 class IdentityType(StrEnum):
-    # TODO: Refine identity types based on requirements (e.g., human, machine, etc.)
+    # Refine identity types based on requirements (e.g., human, machine, etc.)
     HUMAN = "human"
     NON_HUMAN = "non_human"
     GENERIC = "generic"
 
 
 class IdentityState(StrEnum):
-    # TODO: Refine identity states based on requirements (e.g., active, inactive, blocked, etc.)
+    # Refine identity states based on requirements (e.g., active, inactive, blocked, etc.)
     ACTIVE = "active"
     INACTIVE = "inactive"
     BLOCKED = "blocked"

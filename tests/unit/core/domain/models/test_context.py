@@ -3,6 +3,7 @@
 import pytest
 
 from assets_guardian.core.config.app_config import AppConfig, AppEnv
+from assets_guardian.core.config.author_config import AuthorConfig
 from assets_guardian.core.config.cache_config import CacheConfig
 from assets_guardian.core.config.logging_config import LoggingConfig
 from assets_guardian.core.config.paths_config import PathsConfig
@@ -22,7 +23,7 @@ def valid_app_config() -> AppConfig:
     return AppConfig(
         env=AppEnv.PROD,
         version="1.0.0",
-        author={},
+        author=AuthorConfig(fullname="Test Author", email="author@example.com"),
         logging=LoggingConfig(
             console_level="INFO",
             file_level="INFO",
@@ -34,7 +35,7 @@ def valid_app_config() -> AppConfig:
         paths=PathsConfig(
             excel=Location("local:tests/data/test.xlsx"),
             pdf=Location("local:tests/data/report.pdf"),
-            rules_config=Location("local:tests/data/rules.yml"),
+            rules=Location("local:tests/data/rules.yml"),
             excel_config=Location("local:excel_config.json"),
             pdf_config=Location("local:pdf_config.json"),
             employees=Location("local:employees.json"),

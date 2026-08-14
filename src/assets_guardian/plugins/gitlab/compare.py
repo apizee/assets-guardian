@@ -34,7 +34,15 @@ class GitlabNewUserComparisonRule(IComparisonRule):
         self._description = kwargs.get(
             "description", "Detects the creation or addition of new users on GitLab."
         )
-        self._severity = kwargs.get("severity", SeverityType.INFO)
+        severity_value = kwargs.get("severity")
+        if not severity_value:
+            logger.warning(
+                "Rule %s: no 'severity' configured in rules_config.yml, defaulting to %s.",
+                self.rule_id,
+                SeverityType.INFO,
+            )
+            severity_value = SeverityType.INFO
+        self._severity = severity_value
 
     @property
     def target_entity(self) -> str:
@@ -104,7 +112,15 @@ class GitlabDeletedUserComparisonRule(IComparisonRule):
         self.instance_id = kwargs.get("instance_id", "default")
         self._name = kwargs.get("name", "GitLab user deletions")
         self._description = kwargs.get("description", "Detects user deletions from GitLab.")
-        self._severity = kwargs.get("severity", SeverityType.WARNING)
+        severity_value = kwargs.get("severity")
+        if not severity_value:
+            logger.warning(
+                "Rule %s: no 'severity' configured in rules_config.yml, defaulting to %s.",
+                self.rule_id,
+                SeverityType.WARNING,
+            )
+            severity_value = SeverityType.WARNING
+        self._severity = severity_value
 
     @property
     def target_entity(self) -> str:
@@ -176,7 +192,15 @@ class GitlabUserStatusComparisonRule(IComparisonRule):
             "description",
             "Detects status changes (active/blocked) of GitLab users.",
         )
-        self._severity = kwargs.get("severity", SeverityType.WARNING)
+        severity_value = kwargs.get("severity")
+        if not severity_value:
+            logger.warning(
+                "Rule %s: no 'severity' configured in rules_config.yml, defaulting to %s.",
+                self.rule_id,
+                SeverityType.WARNING,
+            )
+            severity_value = SeverityType.WARNING
+        self._severity = severity_value
 
     @property
     def target_entity(self) -> str:
@@ -253,7 +277,15 @@ class GitlabUserPrivilegeComparisonRule(IComparisonRule):
             "description",
             "Detects changes in user administrator privileges on GitLab.",
         )
-        self._severity = kwargs.get("severity", SeverityType.DANGER)
+        severity_value = kwargs.get("severity")
+        if not severity_value:
+            logger.warning(
+                "Rule %s: no 'severity' configured in rules_config.yml, defaulting to %s.",
+                self.rule_id,
+                SeverityType.DANGER,
+            )
+            severity_value = SeverityType.DANGER
+        self._severity = severity_value
 
     @property
     def target_entity(self) -> str:

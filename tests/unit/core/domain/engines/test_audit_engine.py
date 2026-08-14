@@ -30,8 +30,8 @@ def audit_engine(mock_cache):
 def mock_context():
     """Provide a mock Context with local rules config and standard options."""
     ctx = MagicMock(spec=Context)
-    ctx.app_config.paths.rules_config.is_local = True
-    ctx.app_config.paths.rules_config.clean_path = "rules.yml"
+    ctx.app_config.paths.rules.is_local = True
+    ctx.app_config.paths.rules.clean_path = "rules.yml"
     ctx.app_config.paths.excel.clean_path = "baseline.xlsx"
     ctx.app_config.integrations = {}
     return ctx
@@ -115,7 +115,7 @@ def test_audit_engine_run_remote_rules(mock_load_yaml, audit_engine, mock_contex
     collector = MagicMock()
     collector.source_name = "gitlab"
     collector.instance_id = "prod"
-    mock_context.app_config.paths.rules_config.is_local = False
+    mock_context.app_config.paths.rules.is_local = False
 
     results = audit_engine.run([collector], mock_context)
     assert results[("gitlab", "prod")].total_count == 0

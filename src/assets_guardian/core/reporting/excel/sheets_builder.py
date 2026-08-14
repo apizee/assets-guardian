@@ -118,13 +118,28 @@ class GenericSheetBuilder(ISheetBuilder):
                 continue
             items_list = getattr(result, data_source, [])
             if filter_by_asset_type:
-                items_list = [
-                    item
-                    for item in items_list
-                    if item.asset and item.asset.asset_type == filter_by_asset_type
-                ]
+                items_list = self.__filter_by_asset_type(
+                    items_list, data_source, filter_by_asset_type
+                )
             collected.extend(items_list)
         return collected
+
+    def __filter_by_asset_type(
+        self, items_list: list[Any], data_source: str, asset_type: str
+    ) -> list[Any]:
+        """Filters items whose asset type matches, for both assets and accesses sources.
+
+        Args:
+            items_list: The items to filter (Asset or Access instances).
+            data_source: Name of the source attribute ("assets" or "accesses").
+            asset_type: The asset type to match against.
+
+        Returns:
+            list[Any]: Items matching the given asset type.
+        """
+        if data_source == "assets":
+            return [item for item in items_list if item.asset_type == asset_type]
+        return [item for item in items_list if item.asset and item.asset.asset_type == asset_type]
 
     def build(
         self,
@@ -162,6 +177,8 @@ class GenericSheetBuilder(ISheetBuilder):
         else:
             data_source = sheet_config.get("data_source", "identities")
             filter_by_asset_type = sheet_config.get("filter_by_asset_type")
+            if sheet_config.get("row_height") == "auto":
+                worksheet.auto_row_height = True
 
         # Setup headers and column widths
         self.__setup_worksheet_header(worksheet, rules)

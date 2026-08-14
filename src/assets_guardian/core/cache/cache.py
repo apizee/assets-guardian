@@ -152,9 +152,10 @@ class CacheManager:
         Args:
             command: Name of the command concerned.
         """
-
         logger.info("Cleaning cache for command '%s'...", command)
-        for file in self.cache_dir.glob(f"{command}_*.jsonl"):
+        for file in self.cache_dir.iterdir():
+            if not file.is_file():
+                continue
             try:
                 # Outside of production, keep the cache to reduce collection times
                 if env == AppEnv.PROD:

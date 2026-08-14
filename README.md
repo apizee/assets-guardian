@@ -3,7 +3,7 @@
 **One place to audit every identity and access right in your IT environment.**
 
 ![Banner](docs/_images/ag_banner.png)
-![Version](https://img.shields.io/badge/version-0.1.1-blue?style=for-the-badge&logo=semver&logoColor=white)
+![Version](https://img.shields.io/badge/version-0.2.0-blue?style=for-the-badge&logo=semver&logoColor=white)
 [![License: GPLv3](https://img.shields.io/badge/license-GPLv3-blue?style=for-the-badge&logo=gnu&logoColor=white)](https://github.com/apizee/assets-guardian/blob/main/LICENSE.txt)
 [![Python](https://img.shields.io/badge/python-3.13%2B-blue?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/downloads/)
 [![Documentation](https://img.shields.io/badge/docs-Sphinx-blue?style=for-the-badge&logo=sphinx&logoColor=white)](https://apizee.github.io/assets-guardian/)
@@ -13,6 +13,8 @@ Assets Guardian is a modular, multi-source, multi-instance Identity and Access M
 - **Modular Architecture**: Add, remove, or create your own custom plugins without ever modifying the core codebase.
 - **Comprehensive Reporting**: Automatically generates a detailed Excel IAM inventory/register and PDF audit reports.
 - **Rule-Based Engine**: Extensible compliance and rule engine for evaluating access policies.
+- **Local or SharePoint Storage**: Read configuration from, and publish reports to, a SharePoint document library instead of the local filesystem.
+- **Email Notifications**: Send the audit report to a list of recipients at the end of a run.
 
 ## 🔌 Available Plugins
 
@@ -22,7 +24,7 @@ Each plugin is self-contained and only activated when explicitly declared in `co
 | :---: | :---: | :---: | :---: |
 | **GitLab** | ✅ Available | Personal Access Token (Bearer) | Users, groups, projects & access rights |
 | **Dolibarr** | ✅ Available | API key (`DOLAPIKEY`) | Users, groups & access rights |
-| **Microsoft 365** | 🚧 Planned | Microsoft Graph API | Users, groups & applications |
+| **Microsoft 365** | ✅ Available | Microsoft Graph, app-only OAuth2 (tenant / application ID / secret) | Users (MFA, sign-in activity), groups, directory roles, app registrations & licenses |
 
 > 💡 **Tip:** Your platform isn't listed? Adding a connector never touches the core engine, see the [Plugin Development Guide](docs/markdown/PLUGIN.md).
 
@@ -60,11 +62,14 @@ The installed command resolves every file **relative to the directory you launch
 
 ```text
 my-iam-audit/
-├── config/         # config.yml, rules_config.yml, employees.json, excel/pdf styling
+├── config/         # config.yml, template.config.yml, rules_config.yml, employees.json, excel/pdf styling
 ├── .env            # plugin credentials (optional, depends on the plugins you enable)
+├── logs/           # rotating log files (auto-created on first run)
 └── outputs/        # generated Excel & PDF reports (auto-created on first run)
 ```
 
+> ⚠️ **Warning:** Keep `template.config.yml` next to `config.yml`. It is not a backup: Assets Guardian validates your configuration against it at startup, and the run fails without it.
+>
 > 💡 **Tip:** The quickest way to bootstrap it is to copy the repository's `config/` directory, rename each `template.*` file (drop the `template.` prefix), and copy `.env.template` to `.env`. See [Getting Started](docs/markdown/GETTING_STARTED.md) for the full configuration reference.
 
 ### 3. Run it
@@ -73,10 +78,11 @@ From inside your working directory, call the commands directly:
 
 ```bash
 cd my-iam-audit
-assets-guardian --help      # show all flags and command avalaible
-assets-guardian check       # diagnostic of config, connectivity & permissions
-assets-guardian sync        # build / update the Excel IAM inventory
-assets-guardian audit       # evaluate the rules & generate the PDF report
+assets-guardian --help          # show all available flags and commands
+assets-guardian check           # diagnostic of config, connectivity & permissions
+assets-guardian sync            # build / update the Excel IAM inventory
+assets-guardian audit           # evaluate the rules & generate the PDF report
+assets-guardian script <name>   # run a custom power-user script from scripts/ (advanced)
 ```
 
 > 💡 **Tip:** Upgrade later with `make upgrade`, and remove the command entirely with `make uninstall`.

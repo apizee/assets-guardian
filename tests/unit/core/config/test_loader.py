@@ -345,6 +345,26 @@ def test_load_employees_profiles_uses_username_fallback(tmp_path: Path) -> None:
     assert result["jdoe"] == ["Admin"]
 
 
+def test_load_employees_profiles_multiple_emails_per_employee(tmp_path: Path) -> None:
+    """load_employees_profiles maps every email in a list to the same profiles."""
+    employees_file = tmp_path / "employees.json"
+    employees_file.write_text(
+        json.dumps(
+            [
+                {
+                    "email": ["alice@corp.com", "alice.smith@corp.com"],
+                    "profiles": "R&D, Security",
+                }
+            ]
+        )
+    )
+
+    result = load_employees_profiles(str(employees_file))
+
+    assert result["alice@corp.com"] == ["R&D", "Security"]
+    assert result["alice.smith@corp.com"] == ["R&D", "Security"]
+
+
 def test_load_employees_profiles_skips_entries_without_id_or_profiles(tmp_path: Path) -> None:
     """load_employees_profiles ignores employees missing both email/username and profiles."""
     employees_file = tmp_path / "employees.json"

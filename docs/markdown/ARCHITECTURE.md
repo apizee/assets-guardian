@@ -8,10 +8,12 @@ Assets Guardian is an **IAM (Identity and Access Management) governance tool**. 
 
 > *Who has access to what, with what role - and does that comply with the company's security policy?*
 
-It connects to multiple external systems (GitLab, Microsoft 365, Dolibarr, Teleport, etc.), pulls access data from each, normalizes it into a unified model, and produces two outputs:
+It connects to multiple external systems (GitLab, Microsoft 365, Dolibarr, Teleport, etc.), pulls access data from each, normalizes it into a unified model, and produces two artifacts:
 
 - An **Excel workbook** - the living reference of all access rights across all systems, refreshed on every `sync`.
 - A **PDF audit report** - a compliance report listing security gaps, violations, and anomalies.
+
+Both artifacts can be written locally or pushed to a **SharePoint** document library (`remote:` paths, via the Microsoft 365 plugin), and the audit report can additionally be **emailed** to the recipients listed in `notification_email`.
 
 The tool runs as a **non-interactive CLI**, designed for CI/CD pipelines, scheduled jobs, or manual runs by a security officer.
 
@@ -24,20 +26,25 @@ Assets Guardian is organized around a central `core/` package, a thin `cli/` ent
 ```mermaid
 graph TD
     CLI["<b>CLI Layer</b><br/>cli/"]
-    UTILS["<b>Utils</b><br/>utils/ - dates · ip"]
+    UTILS["<b>Utils</b><br/>utils/ - dates · ip · timer"]
     PLUGINS["<b>Plugins</b><br/>plugins/ - gitlab · dolibarr · microsoft365 · …"]
 
     subgraph CORE["core/"]
         DOMAIN["<b>Domain</b><br/>domain/ - engines · models · ports · registry"]
         REPORTING["<b>Reporting</b><br/>reporting/ - Excel · PDF"]
         CLIENTS["<b>Clients</b><br/>clients/ - HTTP · MySQL"]
+        MICROSOFT365["<b>Microsoft 365</b><br/>microsoft365/ - SharePoint download/upload · email"]
         PLUMBING["<b>Plumbing</b><br/>config · cache · logging"]
     end
 
     CLI --> DOMAIN
     CLI --> PLUMBING
+    CLI --> MICROSOFT365
     DOMAIN --> REPORTING
     DOMAIN --> PLUMBING
+    DOMAIN --> MICROSOFT365
+    MICROSOFT365 --> CLIENTS
+    MICROSOFT365 --> UTILS
     PLUGINS -.->|"implements ports"| DOMAIN
     PLUGINS --> CLIENTS
     PLUGINS --> UTILS
@@ -52,8 +59,9 @@ graph TD
 | → **Domain** (`core/domain/`) | Orchestrates business logic through engines. Defines abstract interfaces (ports) that plugins implement. |
 | → **Reporting** (`core/reporting/`) | Adapters around the report artifacts: Excel sheet builders and PDF generation. |
 | → **Clients** (`core/clients/`) | Low-level technical clients (HTTP, MySQL) used by plugin adapters to reach external systems. They implement no domain port, plugins wrap them behind `IClientProvider`. |
+| → **Microsoft 365** (`core/microsoft365/`) | Resolves `remote:` (SharePoint) file locations for download/upload and sends notification emails, both via Microsoft Graph. Used by the CLI and by domain engines wherever a path can be remote. |
 | → **Config · Cache · Logging** (`core/config/`, `core/cache/`, `core/logging/`) | Application plumbing only: configuration loading and validation, logger setup, file-based cache. |
-| **Utils** (`utils/`) | Pure stateless helpers (dates, IP) with zero project dependencies. |
+| **Utils** (`utils/`) | Pure stateless helpers (dates, IP, timer) with zero project dependencies. |
 | **Plugins** (`plugins/`) | Adapters for each external system. Plug into the domain via well-defined interfaces. The domain never imports from plugins. |
 
 ## Startup Sequence - Plugin Discovery
@@ -66,8 +74,13 @@ flowchart LR
     B --> C["Build Context<br/>Init logging"]
     C --> D[discover_all]
 
+    D --> DR{"audit mode?"}
+    DR -- Yes --> DRL["Import default_rules.py"]
+    DRL --> L
+    DR -- No --> E
+
     D --> E{"For each dir<br/>in plugins/"}
-    E --> F{"In config<br/>integrations?"}
+    E --> F{"Declared in<br/>config.yml?"}
     F -- No --> G([Skip])
     F -- Yes --> H["Import client.py<br/>Import collector.py"]
 
@@ -95,6 +108,7 @@ sequenceDiagram
     participant CollectorEngine
     participant Plugin as Plugin Collector
     participant ExcelEngine
+    participant Microsoft365
 
     CLI->>SyncEngine: run(collectors)
 
@@ -111,12 +125,20 @@ sequenceDiagram
 
     CLI->>ExcelEngine: generate(results, ctx)
     ExcelEngine-->>CLI: outputs/assets_guardian.xlsx
+
+    opt paths.excel is remote
+        CLI->>Microsoft365: push_to_location(excel)
+        Microsoft365-->>CLI: uploaded to SharePoint
+    end
 ```
 
 **Key behaviours:**
 
 - Manual tabs (e.g. the access matrix, employee mappings) are preserved - only auto-generated tabs are overwritten.
 - If a collector fails, `SyncEngine` logs the error and continues with the remaining sources.
+- If `paths.excel` contains the `DATE` placeholder, it is substituted with the current UTC date at write time, and `audit` recomputes the same name when reading the workbook back. When `paths.excel` is a `remote:` location, the workbook is uploaded to SharePoint after generation.
+- Auto-generated sheets (everything except "... Matrix" sheets) are locked read-only within Excel's UI to deter accidental edits. This is a UI-level deterrent only (`openpyxl` sheet protection), not encryption - it is never verified by the tool itself and the password is not meant to be known by anyone.
+- Every write stamps the workbook with a per-sheet SHA-256 checksum (stored in its custom document properties), computed on the file as actually saved to disk. The next `sync` recomputes it from the current file and logs a warning naming any sheet - including "... Matrix" ones, which stay editable but are still checked - that was modified outside Assets Guardian since the last write, together with the file's `lastModifiedBy`/`modified` core properties (self-reported by whatever application last saved it, so absent or generic for some non-Microsoft editors). See `ExcelWriter.__verify_integrity` / `__finalize_integrity_signature` in `core/reporting/excel/writer.py`.
 
 ### `audit` - Compliance audit and PDF report
 
@@ -129,6 +151,7 @@ sequenceDiagram
     participant CollectorEngine
     participant ComplianceEngine
     participant PDFEngine
+    participant Microsoft365
 
     CLI->>AuditEngine: run(collectors, ctx)
 
@@ -145,50 +168,91 @@ sequenceDiagram
 
     AuditEngine->>PDFEngine: generate(all reports)
     PDFEngine-->>CLI: outputs/audit_report.pdf
+
+    opt paths.pdf is remote
+        CLI->>Microsoft365: push_to_location(pdf)
+    end
+    opt notification_email configured
+        CLI->>Microsoft365: send_email(report attached)
+    end
 ```
 
 **Key behaviours:**
 
-- The **baseline** is the Excel workbook from the last `sync`. Comparison rules use it to detect changes (e.g. new accounts since last audit).
+- The **baseline** is the Excel workbook from the last `sync`. Comparison rules use it to detect changes (e.g. new accounts since last audit). It is resolved through `resolve_location_path`, so it can come from a local file or be downloaded from SharePoint.
 - Findings are **streamed through a file cache** to avoid loading all data into memory at once.
 - Each `(source_name, instance_id)` pair produces its own `Report`, then all reports are merged into a single PDF.
+- Once generated, the report is uploaded to SharePoint if `paths.pdf` is a `remote:` location, and emailed to every address in `notification_email` (skipped with an info log if the list is empty).
 
 ### `check` - Configuration health check
 
-Tests connectivity and authentication for all configured plugins. Does not write any files. Used for troubleshooting and CI/CD pre-flight validation.
+Validates the whole environment before anything runs: configuration files, filesystem permissions, and connectivity to every configured plugin. Used for troubleshooting and CI/CD pre-flight validation.
 
-The `CheckEngine` iterates over all configured integrations, attempts to instantiate each client, and reports pass/fail per source.
+`CheckEngine.run_details()` produces one pass/fail entry per check:
+
+| Check | What it validates |
+| --- | --- |
+| `config` | `config.yml` parses and matches `template.config.yml` |
+| `logging_path` · `logging_folder` | The logging location is local, and its directory exists and is writable |
+| `employees` · `rules_config` | `employees.json` and `rules_config.yml` load (downloaded from SharePoint first if `remote:`) |
+| `excel` · `pdf` | `excel_config.json` and `pdf_config.json` load, and are rejected if `remote:` |
+| `output_paths` | `paths.excel` / `paths.pdf` parent directories are writable, or a microsoft365 integration exists when they are `remote:` |
+| `cache_dir` | The cache directory exists and is readable/writable |
+| `email` | `notification_email` is a list of syntactically valid addresses (empty list is a warning, not an error) |
+| `instances` | Each configured `(source, instance)` client can be instantiated and passes its `health_check()` |
+
+`rules_config` and `pdf` are only checked in `audit` and `check` modes, since `sync` does not read them.
+
+> 💡 **Tip:** `check` never aborts, its job is to report. `sync` and `audit` however run the same engine first and refuse to start if any check fails.
+
+### `script` - Power-user custom scripts
+
+Runs an arbitrary Python file from the `scripts/` directory with the fully bootstrapped application context.
+
+```bash
+assets-guardian script my_automation   # runs scripts/my_automation.py
+```
+
+The script must expose a `run(ctx)` function. Because discovery has already happened by the time it is called, the script can reach every registry, client provider, and collector of the configured integrations through `ctx`.
+
+> ⚠️ **Warning:** Scripts are executed without guardrails, unlike the rest of Assets Guardian. This command is intentionally an escape hatch for tinkerers.
 
 ## Domain Models
 
 > TODO: To be reviewed.
 
-These are the core data structures shared across all engines, plugins, and reporting adapters. All models are **frozen dataclasses** - immutable once created, with field validation on construction.
+These are the core data structures shared across all engines, plugins, and reporting adapters. `Identity`, `Asset`, `Access`, `Finding` and `Context` are **frozen dataclasses** - immutable once created, with field validation on construction. `Report` is the exception: it is a mutable container that accumulates findings and severity counters as the audit progresses.
+
+In the diagram below, the fields listed first for `Identity`, `Asset` and `Access` (up to and including `name`) are the ones their constructor **requires**. This matters when reading an Excel workbook back into models, see [`excel_config.json`](PLUGIN.md#columns-required-by-the-round-trip).
 
 ```mermaid
 erDiagram
     Identity {
+        string source
         string external_id
-        string login
+        IdentityType identity_type
+        string name
+        string username
         string email
-        bool is_active
+        IdentityState state
         bool mfa_enabled
         datetime last_activity_at
     }
     Asset {
-        string external_id
-        string name
-        string asset_type
         string source
+        string external_id
+        string asset_type
+        string name
     }
     Access {
-        string role
         string source
+        string access_type
+        string name
     }
     Finding {
         string rule_id
         string severity
-        string message
+        string title
         string source
     }
     Report {
@@ -220,9 +284,9 @@ A plugin is a directory under `plugins/` that adapts a specific external system 
 | File | Required | Purpose |
 | --- | --- | --- |
 | `client.py` | Yes | Authenticates with the external system and creates the client object |
-| `repository.py` | Yes | Fetches raw data from the external resource |
-| `mapper.py` | Yes | Normalizes raw data responses into domain models (`Identity`, `Asset`, `Access`) |
 | `collector.py` | Yes | Implements `Collector` - orchestrates repositories and mappers |
+| `repository.py` | Convention | Fetches raw data from the external resource. Imported by the plugin's own `collector.py`, never by the framework |
+| `mapper.py` | Convention | Normalizes raw data responses into domain models (`Identity`, `Asset`, `Access`). Imported by the plugin's own `collector.py`, never by the framework |
 | `rules.py` | No | Plugin-specific compliance rules evaluated during `audit`. Acts as the entry point that re-exports the rule classes defined in `compare.py`, `matrix.py` and `compliance.py` |
 | `compare.py` | No | Comparison rules (`IComparisonRule`), live run vs the last Excel sync baseline |
 | `matrix.py` | No | Matrix rules (`IMatrixRule`), active grants vs the expected access matrix |
@@ -230,13 +294,16 @@ A plugin is a directory under `plugins/` that adapts a specific external system 
 | `sheet_builders.py` | No | Custom Excel sheet layouts injected during `sync` |
 | `pdf_builder.py` | No | Custom PDF sections injected during `audit` report generation |
 | `constants.py` | No | Source-specific constants (role names, access levels, etc.) |
-| `excel_config.json` | No | Plugin-specific Excel column mapping and styling rules used during `sync` |
+| `excel_config.json` | No | Plugin-specific Excel column mapping and styling rules. Used during `sync` to write the sheets, and during `audit` to parse the previous workbook back into domain models, so a column must be mapped to every field the model's constructor requires |
+| `CREDENTIALS.md` | No | Operator-facing guide: which credentials the plugin needs, how to generate them on the target platform, and the minimum permissions to grant |
+
+Only `client.py`, `collector.py`, `rules.py`, `sheet_builders.py` and `pdf_builder.py` are filenames the discovery engine knows about and imports by name. Everything else is loaded by the plugin itself, so `repository.py`, `mapper.py`, `constants.py` and the `compare.py` / `matrix.py` / `compliance.py` split are conventions the codebase follows rather than framework requirements. See [PLUGIN.md](PLUGIN.md) for the full authoring guide.
 
 ### Plugin interfaces
 
 > TODO: Probably needs revisiting depending on the changes made after the review.
 
-The domain defines four abstract interfaces that a plugin must fulfill:
+The domain defines six abstract interfaces in `core/domain/ports/`. The first four are the collection pipeline every plugin fulfills, the last two are optional reporting hooks:
 
 ```mermaid
 classDiagram
@@ -249,6 +316,8 @@ classDiagram
 
     class IMapper {
         <<interface>>
+        +source_name str
+        +instance_id str
         +to_identity(raw) Identity
         +to_asset(raw) Asset
         +to_access(raw, asset) Access
@@ -269,11 +338,28 @@ classDiagram
         +health_check() bool
     }
 
+    class ISheetBuilder {
+        <<interface>>
+        +sheet_names list
+        +preserved_columns dict
+        +get_rules() dict
+        +build(worksheet, data, preserved, rules)
+    }
+
+    class IPDFBuilder {
+        <<interface>>
+        +source_name str
+        +section_title str
+        +render(pdf, findings)
+    }
+
     Collector --> IRepository : delegates to
     Collector --> IMapper : normalizes via
 ```
 
 `Collector` is a base class with default implementations that delegate to `_repository` and `_mapper`. Plugin collectors override only the methods where they need non-standard behaviour.
+
+`ISheetBuilder` (implemented in `sheet_builders.py`) and `IPDFBuilder` (implemented in `pdf_builder.py`) are optional: a plugin that ships neither still syncs and audits normally, it simply gets the generic Excel sheet driven by its `excel_config.json` and no dedicated PDF section.
 
 ### Registration via decorators
 
@@ -314,13 +400,14 @@ A single plugin (e.g. `gitlab`) can be configured for multiple independent insta
 
 ```yaml
 # config/config.yml
-integrations:
-  gitlab:
-    gitlab.company.com:  # instance 1
-      url: https://gitlab.company.com/api/v4
-    gitlab.subsidiary.com:  # instance 2
-      url: https://gitlab.subsidiary.com/api/v4
+gitlab:
+  gitlab.company.com:  # instance 1
+    url: https://gitlab.company.com/api/v4
+  gitlab.subsidiary.com:  # instance 2
+    url: https://gitlab.subsidiary.com/api/v4
 ```
+
+Plugin sections sit at the **root** of `config.yml`, there is no `integrations:` wrapper key: any top-level key that is not one of the core keys (`env`, `version`, `author`, `notification_email`, `logging`, `paths`, `cache`) is treated as an integration and must match a directory in `plugins/`.
 
 ## Design Patterns
 
@@ -372,7 +459,7 @@ To scale efficiently and support high-volume data retrieval without RAM spikes, 
 
 - **Disk Streaming & Chunking**: Using `LazyCacheIterable` and `itertools.batched`, the system writes and reads collected domain objects incrementally in configurable batches. This avoids storing all raw objects in memory at once.
 - **Atomic Disk Writes**: Files are written first as `.tmp` drafts and swapped atomically via `os.replace` to prevent data corruption during unexpected CLI interruptions.
-- **Environment-Aware Retention**: Temporary cache files are cleared automatically in production (`AppEnv.PROD`) at the end of each command, but are retained during local development/testing (`AppEnv.DEV`) to prevent redundant external API hits.
+- **Environment-Aware Retention**: At the end of each command, the cache directory is emptied when `env` is `prod`, but kept in `dev` and `test` to prevent redundant external API hits. The cleanup removes **every file** in the directory, not just the JSONL batches: files pulled from SharePoint and date-stamped artifacts staged before upload are cleared too. Sub-directories are left untouched.
 
 > TODO: Adding a Mermaid diagram could be interesting? Maybe a quick job for Claude?
 
@@ -391,17 +478,24 @@ author:
   fullname: "First name LAST NAME"
   email: "...@example.com"
 
+notification_email:
+  - "...@example.com"
+  - "...@example.com"
+
 logging:
   console_level: "info"
   file_level: "debug"
   file-basename: "assets-guardian"
   max-size: 10 # MB
   max-files: 3
+  path: "local:logs"
 
 paths:
   excel: "local:outputs/assets_guardian.xlsx"
   pdf: "local:outputs/audit_report.pdf"
   rules: "local:config/rules_config.yml"
+  excel_config: "local:config/excel_config.json"
+  pdf_config: "local:config/pdf_config.json"
   employees: "local:config/employees.json"
 
 cache:
@@ -431,6 +525,8 @@ Specifies which rules are active for each source, and their parameters.
 ```yaml
 gitlab:
   # Load all default rules defined in plugins/default_rules.py
+  # (DEFAULT-XXX and the CTRL_HUMAN_*/CTRL_SERVICE_*/CTRL_GENERIC_* identity
+  # naming-convention rules)
   <<: *default_rules
 
   # Configure plugin-specific rules with their appropriate parameters and severity
@@ -439,18 +535,29 @@ gitlab:
     severity: INFO
 
   COMPLIANCE-001:
-    description: "Connection from an unusual location."
-    severity: "HIGH"
-    custom_parameter_1: "first custom parameter"
-    custom_parameter_2: "second custom parameter"
-    custom_parameter_3: "third custom parameter"
+    description: "Gitlab mailbox not listed in employees.json."
+    severity: "WARNING"
+    employees_file_path: "config/employees.json"   # Free-form parameter, read by the rule itself
 
   MATRIX-001:
-    description: "User not in the right group"
-    severity: "HIGH"
+    description: "GitLab instance administrator access not authorized by the matrix."
+    severity: "DANGER"
+
+dolibarr:
+  <<: *default_rules
+
+  COMPLIANCE-001:
+    description: "Dolibarr mailbox not listed in employees.json."
+    severity: "WARNING"
+
+  DOLIBARR-005:
+    description: "Lists disabled user accounts in Dolibarr."
+    severity: "INFO"
 ```
 
-Rule IDs match the `@RuleRegistry.register(rule_id)` decorator in the plugin's `rules.py`. See [Registration via decorators](#registration-via-decorators) for the three rule categories (`COMPARE-XXX`, `COMPLIANCE-XXX` and `MATRIX-XXX`).
+Rule IDs match the `@RuleRegistry.register(rule_id)` decorator, declared in the plugin's `compare.py`, `matrix.py` or `compliance.py` and re-exported through its `rules.py`, or in `plugins/default_rules.py` for the shared rules. They are namespaced per source, so `gitlab`'s `COMPLIANCE-001` and `dolibarr`'s `COMPLIANCE-001` above are two independent rules. See [Registration via decorators](#registration-via-decorators) and [Naming rule IDs](PLUGIN.md#naming-rule-ids) for the rule categories (`COMPARE-XXX`, `COMPLIANCE-XXX`, `MATRIX-XXX`, `DEFAULT-XXX` and `CTRL_*`), and for the plugin-prefixed form (`DOLIBARR-005`) that a few source-specific rules use.
+
+[`config/template.rules_config.yml`](https://github.com/apizee/assets-guardian/blob/main/config/template.rules_config.yml) is the exhaustive reference: it lists every rule available for every shipped plugin.
 
 ### `config/employees.json` - HR reference
 
@@ -465,15 +572,15 @@ Example of `employees.json` :
     {
         "first_name": "John",
         "last_name": "Doe",
-        "email": "john.doe@company.com",
-        "username": "jdoe",
+        "email": ["john.doe@company.com", "jdoe@company.com"],
+        "username": ["jdoe", "john.doe"],
         "profiles": "Marketing, Finance"
     },
     {
         "first_name": "Ada",
         "last_name": "Lovelace",
-        "email": "ada.lovelace@company.com",
-        "username": "alovelace",
+        "email": ["ada.lovelace@company.com"],
+        "username": ["alovelace"],
         "profiles": "R&D, Support"
     }
 ]
@@ -489,6 +596,7 @@ Example of `employees.json` :
 | **CLI framework** | Click | Clean group/subcommand model with context passing |
 | **Excel** | openpyxl | Full read/write with formatting and sheet preservation |
 | **PDF** | fpdf2 | Lightweight; no Java dependency unlike reportlab alternatives |
+| **Microsoft 365** | msgraph-sdk + azure-identity | Official Graph SDK and credential flow; covers identities, SharePoint files and mail in one client |
 | **Package manager** | uv + hatchling | Fast, reproducible installs; replaces pip + setuptools |
 | **Linting** | Ruff | Replaces flake8 + black + isort in a single fast tool |
 | **Type checking** | Mypy (strict mode) | Catches interface mismatches between plugins and ports at dev time |

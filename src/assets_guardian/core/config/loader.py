@@ -196,12 +196,14 @@ def load_employees_profiles(employees_file_path: str | None) -> dict[str, list[s
 
         profiles: dict[str, list[str]] = {}
         for emp in employees:
-            user_id = emp.get("email") or emp.get("username")
+            user_id = to_str_list(emp.get("email")) or to_str_list(emp.get("username"))
             emp_profiles = emp.get("profiles", "")
 
             if user_id and emp_profiles:
                 # Split by comma and clean whitespace
-                profiles[str(user_id)] = [p.strip() for p in emp_profiles.split(",")]
+                parsed_profiles = [p.strip() for p in emp_profiles.split(",")]
+                for identifiant in user_id:
+                    profiles[identifiant] = parsed_profiles
         return profiles  # noqa: TRY300
     except Exception:
         return {}
@@ -218,3 +220,12 @@ def get_project_version() -> str:
             with pyproject_path.open("rb") as file:
                 return str(tomllib.load(file).get("project", {}).get("version", "0.0.0"))
         return "0.0.0"
+
+
+def to_str_list(value: Any) -> list[str]:
+    """Normalizes a value into a list of strings."""
+    if isinstance(value, list):
+        return [str(x) for x in value]
+    if not value:
+        return []
+    return [str(value)]

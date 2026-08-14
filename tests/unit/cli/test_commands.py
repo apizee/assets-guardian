@@ -1,11 +1,13 @@
 """Tests for the CLI commands."""
 
+import sys
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from assets_guardian.cli.audit import run_audit_command
 from assets_guardian.cli.check import run_check_command
+from assets_guardian.cli.script import run_script_command
 from assets_guardian.cli.sync import run_sync_command
 from assets_guardian.core.domain.models.context import Context
 
@@ -72,3 +74,16 @@ def test_run_sync_command(
     mock_check.run.assert_called_once_with(mock_ctx)
     mock_sync_engine.run.assert_called_once()
     mock_excel_engine_cls.return_value.generate.assert_called_once()
+
+
+@pytest.mark.parametrize("name", ["user_script", "user_script.py"])
+def test_run_script_command(tmp_path, mock_ctx, name):
+    """Verify that run_script_command loads the script file and calls its run entry point with the context."""
+    script_file = tmp_path / "user_script.py"
+    script_file.write_text("received = []\ndef run(ctx):\n    received.append(ctx)\n")
+
+    with patch("assets_guardian.cli.script.DIR_SCRIPTS", tmp_path):
+        run_script_command(mock_ctx, name)
+
+    module = sys.modules.pop("assets_guardian_script_user_script")
+    assert module.received == [mock_ctx]

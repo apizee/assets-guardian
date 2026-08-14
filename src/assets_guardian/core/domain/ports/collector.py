@@ -68,12 +68,12 @@ class Collector:
             )
             yield self._mapper.to_access(raw, asset=target_asset)
 
-    # TODO: Est-ce que cela veut dire qu'il faudrait vraiment ajouter la notion de groupe dans le modèle de données ?  # noqa: E501
+    # TODO: Should groups become an explicit concept in the domain model?
     def collect_groups(self) -> Iterable[Any]:
         """Optional: collects groups from the source."""
         return []
 
-    # TODO: Même remarque, est-ce que cela veut dire qu'il faudrait vraiment ajouter la notion de permissions dans le modèle de données ?  # noqa: E501
+    # TODO: Same question, but for permissions.
     def collect_permissions(self) -> Iterable[Any]:
         """Optional: collects granular permissions."""
         return []

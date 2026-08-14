@@ -3,7 +3,10 @@ import sys
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
-from assets_guardian.core.config.logging_config import LoggingConfig
+from assets_guardian.core.config.logging_config import DEFAULT_LOGGING_PATH, LoggingConfig
+from assets_guardian.core.domain.models.location import Location
+
+logger = logging.getLogger(__name__)
 
 _RESET = "\033[0m"
 _BOLD = "\033[1m"
@@ -30,6 +33,27 @@ class ColorFormatter(logging.Formatter):
             record.levelname = original
 
 
+# Loggers muted on the console only: still fully recorded in the log file,
+# just excluded from the live terminal output because they are too verbose
+# to be useful there (one line per outgoing HTTP request). Unlike our own
+# plugin loggers, httpx is third-party code: we cannot lower its individual
+# log calls to DEBUG, so it is muted by name instead.
+_CONSOLE_MUTED_LOGGERS = (
+    "httpx",  # underlying HTTP client used by the Microsoft Graph SDK
+)
+
+
+class _ExcludeLoggersFilter(logging.Filter):
+    """Excludes records from a given set of loggers (and their children)."""
+
+    def __init__(self, excluded_prefixes: tuple[str, ...]) -> None:
+        super().__init__()
+        self.__excluded_prefixes = excluded_prefixes
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return not record.name.startswith(self.__excluded_prefixes)
+
+
 def init_logging(logging_config: LoggingConfig) -> None:
     """Initializes logging configuration.
 
@@ -40,7 +64,16 @@ def init_logging(logging_config: LoggingConfig) -> None:
         logging_config: The logging configuration.
     """
 
-    log_dir = Path("logs")
+    if logging_config.path.is_remote:
+        logger.warning(
+            "Logging path is configured as remote; falling back to the local default "
+            "(%r) since remote logging destinations are not supported. "
+            "Run 'assets-guardian check' for more details.",
+            DEFAULT_LOGGING_PATH,
+        )
+        log_dir = Path(Location(DEFAULT_LOGGING_PATH).clean_path)
+    else:
+        log_dir = Path(logging_config.path.clean_path)
     log_dir.mkdir(parents=True, exist_ok=True)
 
     log_file = log_dir / f"{logging_config.file_basename}.log"
@@ -67,15 +100,17 @@ def init_logging(logging_config: LoggingConfig) -> None:
     # Set root logger level to the lower of file and console levels
     root_logger.setLevel(min(logging_config.file_level, logging_config.console_level))
 
-    # Console handler
-    console_handler = logging.StreamHandler()
+    # Console handler (stdout, not stderr: logs are routine output, not errors,
+    # and should be capturable with a plain `>` redirection)
+    console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setLevel(logging_config.console_level)
     # Concise format for console, with colors if TTY
     fmt = "%(levelname)s - %(message)s"
     console_formatter: logging.Formatter = (
-        ColorFormatter(fmt) if sys.stderr.isatty() else logging.Formatter(fmt)
+        ColorFormatter(fmt) if sys.stdout.isatty() else logging.Formatter(fmt)
     )
     console_handler.setFormatter(console_formatter)
+    console_handler.addFilter(_ExcludeLoggersFilter(_CONSOLE_MUTED_LOGGERS))
     root_logger.addHandler(console_handler)
 
     # Attach file handler to the root logger
@@ -83,6 +118,8 @@ def init_logging(logging_config: LoggingConfig) -> None:
 
     logging.getLogger("asyncio").setLevel(logging.WARNING)  # Reduce asyncio noise
     logging.getLogger("faker.factory").setLevel(logging.WARNING)  # Reduce faker noise
+    logging.getLogger("azure").setLevel(logging.WARNING)
+    logging.getLogger("azure.identity").setLevel(logging.WARNING)
 
     root_logger.debug(
         "Logging initialized (File: %s, Console: %s)",

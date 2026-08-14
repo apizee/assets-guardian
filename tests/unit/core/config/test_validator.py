@@ -6,6 +6,7 @@ from unittest import mock
 import pytest
 
 from assets_guardian.core.config.app_config import AppConfig, AppEnv
+from assets_guardian.core.config.author_config import AuthorConfig
 from assets_guardian.core.config.cache_config import CacheConfig
 from assets_guardian.core.config.loader import (
     get_config_value,
@@ -31,6 +32,8 @@ def env_paths():
             "PATH_EXCEL_CONFIG": "local:excel_config.json",
             "PATH_PDF_CONFIG": "local:pdf_config.json",
             "PATH_EMPLOYEES": "local:employees.json",
+            "AUTHOR_FULLNAME": "Test Author",
+            "AUTHOR_EMAIL": "author@example.com",
         },
     ):
         yield
@@ -66,13 +69,13 @@ def test_app_config_dry_run_enabled() -> None:
     """Verify dry-run mode activation conditions based on different environment values (DEV, TEST, PROD)."""
     base_params = {
         "version": "1.0",
-        "author": {},
+        "author": AuthorConfig(fullname="Test Author", email="author@example.com"),
         "logging": LoggingConfig(console_level="INFO", file_level="INFO", max_size=1, max_files=1),
         "integrations": {},
         "paths": PathsConfig(
             excel=Location("local:test.xlsx"),
             pdf=Location("local:report.pdf"),
-            rules_config=Location("local:rules.yml"),
+            rules=Location("local:rules.yml"),
             excel_config=Location("local:excel_config.json"),
             pdf_config=Location("local:pdf_config.json"),
             employees=Location("local:employees.json"),
@@ -187,7 +190,7 @@ def test_parse_config_valid() -> None:
     raw = {
         "env": "prod",
         "version": "1.0",
-        "author": {"name": "Test"},
+        "author": {"fullname": "Test", "email": "test@example.com"},
         "logging": {"console_level": "info", "file_level": "debug", "max-size": 5, "max-files": 2},
         "extra_integration": {"token": "123"},
     }
@@ -206,7 +209,7 @@ def test_parse_config_valid() -> None:
         app_config = AppConfig.create_from_dict(raw)
     assert app_config.env == AppEnv.PROD
     assert re.search(r"[0-9]+(\.[0-9]){2}", app_config.version)
-    assert app_config.author == {"name": "Test"}
+    assert app_config.author == AuthorConfig(fullname="Test", email="test@example.com")
     assert app_config.logging.console_level == 20
     assert app_config.logging.file_level == 10
     assert app_config.logging.max_size == 5 * 1048576
@@ -258,6 +261,17 @@ def test_validate_config_ignores_integrations() -> None:
     }
     raw = {"env": "prod"}  # Missing 'gitlab' but it's an integration, so it should be ignored
     validate_config(raw, template)
+
+
+def test_validate_config_unknown_integration_raises() -> None:
+    """Verify validate_config raises KeyError for an integration key with no matching plugin folder."""
+    template = {
+        "env": "dev",
+        "plauf": [{"url": "http://plauf.com"}],  # Not a real plugin
+    }
+    raw = {"env": "prod"}
+    with pytest.raises(KeyError, match="Unknown integration 'plauf'"):
+        validate_config(raw, template)
 
 
 def test_validate_config_nested_core() -> None:
@@ -363,6 +377,8 @@ def test_validate_env_vars_override_yaml_logging() -> None:
         "PATH_EXCEL_CONFIG": "local:er",
         "PATH_PDF_CONFIG": "local:pr",
         "PATH_EMPLOYEES": "local:em",
+        "AUTHOR_FULLNAME": "Test Author",
+        "AUTHOR_EMAIL": "author@example.com",
     }
     with mock.patch.dict(os.environ, env_overrides, clear=True):
         config = AppConfig.create_from_dict(raw)
@@ -392,6 +408,8 @@ def test_validate_env_var_overrides_env_field() -> None:
             "PATH_EXCEL": "local:excel",
             "PATH_REPORT": "local:report",
             "PATH_RULES": "local:rules",
+            "AUTHOR_FULLNAME": "Test Author",
+            "AUTHOR_EMAIL": "author@example.com",
         },
         clear=True,
     ):
@@ -419,6 +437,8 @@ def test_validate_no_integrations() -> None:
             "PATH_EXCEL": "local:excel",
             "PATH_REPORT": "local:report",
             "PATH_RULES": "local:rules",
+            "AUTHOR_FULLNAME": "Test Author",
+            "AUTHOR_EMAIL": "author@example.com",
         },
         clear=True,
     ):
@@ -426,29 +446,31 @@ def test_validate_no_integrations() -> None:
     assert config.integrations == {}
 
 
-def test_validate_author_absent_defaults_to_empty_dict() -> None:
-    """Verify that the absence of author settings defaults gracefully to an empty dictionary."""
+def test_validate_author_absent_raises_missing_fullname() -> None:
+    """Verify that AppConfig.create_from_dict raises KeyError when author settings are absent (author is mandatory)."""
     raw = {
         "env": "prod",
         "version": "1.0",
         "logging": {},
     }
-    with mock.patch.dict(
-        os.environ,
-        {
-            "ENV": "prod",
-            "VERSION": "1.0",
-            "LOGGING_LEVEL": "INFO",
-            "LOGGING_MAX_SIZE": "10",
-            "LOGGING_MAX_FILES": "5",
-            "PATH_EXCEL": "local:e",
-            "PATH_REPORT": "local:r",
-            "PATH_RULES": "local:ru",
-        },
-        clear=True,
+    with (
+        mock.patch.dict(
+            os.environ,
+            {
+                "ENV": "prod",
+                "VERSION": "1.0",
+                "LOGGING_LEVEL": "INFO",
+                "LOGGING_MAX_SIZE": "10",
+                "LOGGING_MAX_FILES": "5",
+                "PATH_EXCEL": "local:e",
+                "PATH_REPORT": "local:r",
+                "PATH_RULES": "local:ru",
+            },
+            clear=True,
+        ),
+        pytest.raises(KeyError, match="fullname"),
     ):
-        config = AppConfig.create_from_dict(raw)
-    assert config.author == {}
+        AppConfig.create_from_dict(raw)
 
 
 def test_load_yaml_config_empty_file(tmp_path) -> None:
@@ -479,7 +501,7 @@ def test_app_config_unknown_env_raises_errors() -> None:
         "paths": PathsConfig(
             excel=Location("local:test.xlsx"),
             pdf=Location("local:report.pdf"),
-            rules_config=Location("local:rules.yml"),
+            rules=Location("local:rules.yml"),
             excel_config=Location("local:excel_config.json"),
             pdf_config=Location("local:pdf_config.json"),
             employees=Location("local:employees.json"),

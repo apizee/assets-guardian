@@ -1,0 +1,2 @@
+SOURCE_NAME = "microsoft365"
+DEFAULT_INSTANCE_ID = ""

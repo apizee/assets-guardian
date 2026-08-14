@@ -1,3 +1,4 @@
+import logging
 from collections.abc import Iterable
 from typing import Any, ClassVar
 
@@ -7,6 +8,8 @@ from assets_guardian.core.domain.models.rules.matrix import IMatrixRule
 from assets_guardian.core.domain.registry.rule_registry import RuleRegistry
 
 from .constants import ROLES_MAP
+
+logger = logging.getLogger(__name__)
 
 
 @RuleRegistry.register("MATRIX-001")
@@ -24,6 +27,15 @@ class InstanceAdminRule(IMatrixRule):
             "Detects users with GitLab instance administrator privileges "
             "without authorization in the matrix.",
         )
+        severity_value = kwargs.get("severity")
+        if not severity_value:
+            logger.warning(
+                "Rule %s: no 'severity' configured in rules_config.yml, defaulting to %s.",
+                self.rule_id,
+                SeverityType.DANGER,
+            )
+            severity_value = SeverityType.DANGER
+        self.__severity: SeverityType = SeverityType(severity_value)
 
     @property
     def rule_category(self) -> RuleCategory:
@@ -31,7 +43,7 @@ class InstanceAdminRule(IMatrixRule):
 
     @property
     def severity(self) -> SeverityType:
-        return SeverityType.CRITICAL
+        return self.__severity
 
     @property
     def target_entity(self) -> str:
@@ -180,6 +192,15 @@ class GitlabGroupProjectAccessRule(IMatrixRule):
             "description",
             "Detects users with GitLab group/project roles exceeding authorized levels.",
         )
+        severity_value = kwargs.get("severity")
+        if not severity_value:
+            logger.warning(
+                "Rule %s: no 'severity' configured in rules_config.yml, defaulting to %s.",
+                self.rule_id,
+                SeverityType.DANGER,
+            )
+            severity_value = SeverityType.DANGER
+        self.__severity: SeverityType = SeverityType(severity_value)
 
     @property
     def rule_category(self) -> RuleCategory:
@@ -187,7 +208,7 @@ class GitlabGroupProjectAccessRule(IMatrixRule):
 
     @property
     def severity(self) -> SeverityType:
-        return SeverityType.DANGER
+        return self.__severity
 
     @property
     def target_entity(self) -> str:

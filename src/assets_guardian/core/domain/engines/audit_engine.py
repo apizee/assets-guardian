@@ -11,7 +11,9 @@ from assets_guardian.core.domain.models.finding import Finding
 from assets_guardian.core.domain.models.report import Report
 from assets_guardian.core.domain.models.rules.rule import IRule
 from assets_guardian.core.domain.registry.rule_registry import RuleRegistry
+from assets_guardian.core.microsoft365.download_microsoft365 import resolve_location_path
 from assets_guardian.core.reporting.excel.reader import read_workbook
+from assets_guardian.utils.dates import add_date_to_filename
 
 if TYPE_CHECKING:
     from assets_guardian.core.domain.models.location import Location
@@ -171,11 +173,12 @@ class AuditEngine:
         if not comparison_rules:
             return {}
 
-        excel_path: Path = Path(ctx.app_config.paths.excel.clean_path)
-        if not excel_path.exists():
-            logger.debug(
-                "No reference Excel repository found at %s for the baseline state.", excel_path
-            )
+        excel_location = ctx.app_config.paths.excel
+        excel_filename = Path(add_date_to_filename(excel_location.clean_path)).name
+        excel_path_str = resolve_location_path(ctx, excel_location, excel_filename)
+        excel_path = Path(excel_path_str) if excel_path_str else None
+        if excel_path is None or not excel_path.exists():
+            logger.warning("No reference Excel repository found for the baseline state.")
             return {}
 
         old_data: dict[str, list[Any]] = {}
@@ -226,21 +229,26 @@ class AuditEngine:
             list[IRule]: List of instantiated active rules ready for evaluation.
         """
 
-        rules_config: Location = ctx.app_config.paths.rules_config
+        rules_config: Location = ctx.app_config.paths.rules
 
-        if not rules_config.is_local:
-            logger.error("Only local rules configuration files are currently supported.")
+        rules_path = resolve_location_path(ctx, rules_config, "rules_config.yml")
+        if rules_path is None:
+            logger.error("Unsupported rules configuration location.")
             return []
 
         try:
-            raw_rules = load_yaml_config(rules_config.clean_path)
+            raw_rules = load_yaml_config(rules_path)
             source_rules_config = raw_rules.get(source_name, {})
         except Exception:
-            logger.exception("Unable to load rules configuration file: %s", rules_config.clean_path)
+            logger.exception("Unable to load rules configuration file: %s", rules_path)
             return []
 
         if not source_rules_config:
             return []
+
+        employees_path = resolve_location_path(
+            ctx, ctx.app_config.paths.employees, "employees.json"
+        )
 
         active_rules = []
         for rule_id, rule_params in source_rules_config.items():
@@ -251,6 +259,7 @@ class AuditEngine:
                 rule_cls = RuleRegistry.get_rule(rule_id, source=source_name)
                 params = dict(rule_params or {})
                 params["instance_id"] = instance_id
+                params.setdefault("employees_file_path", employees_path)
                 instance = rule_cls(**params)
                 instance.rule_id = rule_id
                 active_rules.append(instance)
@@ -273,10 +282,13 @@ class AuditEngine:
             tuple[dict[tuple[str, str], str], dict[str, list[str]]]: The matrix mapping and
                 employee profiles mapping.
         """
-        excel_path: Path = Path(ctx.app_config.paths.excel.clean_path)
+        excel_location = ctx.app_config.paths.excel
+        excel_filename = Path(add_date_to_filename(excel_location.clean_path)).name
+        excel_path_str = resolve_location_path(ctx, excel_location, excel_filename)
+        excel_path = Path(excel_path_str) if excel_path_str else None
 
-        if not excel_path.exists():
-            logger.debug("No reference Excel repository found at %s.", excel_path)
+        if excel_path is None or not excel_path.exists():
+            logger.warning("No reference Excel repository found.")
             return {}, {}
 
         try:
@@ -286,7 +298,10 @@ class AuditEngine:
             return {}, {}
         else:
             matrix = self.__extract_matrix(workbook_data, source_name, instance_id)
-            employees_profiles = load_employees_profiles(ctx.app_config.paths.employees.clean_path)
+            employees_path = resolve_location_path(
+                ctx, ctx.app_config.paths.employees, "employees.json"
+            )
+            employees_profiles = load_employees_profiles(employees_path)
             return matrix, employees_profiles
 
     def __resolve_matrix_sheet_name(
@@ -323,7 +338,7 @@ class AuditEngine:
 
         sheet = workbook_data[sheet_name]
         header, content = sheet["header"], sheet["content"]
-        scopes = {i: header[i]["title"] for i in header if i > 1}
+        scopes = {i: header[i]["title"].strip() for i in header if i > 1}
 
         matrix = {}
         for row in content:
@@ -347,7 +362,7 @@ class AuditEngine:
         if not row or not row[0]:
             return {}
 
-        profile = row[0]
+        profile = row[0].strip() if isinstance(row[0], str) else row[0]
         row_matrix = {}
         for col_idx, scope_name in scopes.items():
             role = row[col_idx - 1] if col_idx - 1 < len(row) else None

@@ -3,8 +3,10 @@ from typing import Any
 
 from assets_guardian.core.domain.models.context import Context
 from assets_guardian.core.domain.registry.sheet_builder_registry import SheetBuilderRegistry
+from assets_guardian.core.microsoft365.download_microsoft365 import resolve_location_path
 from assets_guardian.core.reporting.excel.default_builder import DefaultSheetBuilder
 from assets_guardian.core.reporting.excel.writer import ExcelWriter
+from assets_guardian.utils.dates import add_date_to_filename
 
 logger = logging.getLogger(__name__)
 
@@ -12,12 +14,15 @@ logger = logging.getLogger(__name__)
 class ExcelEngine:
     """Engine responsible for generating the reference Excel repository."""
 
-    def generate(self, data: Any, ctx: Context) -> None:
+    def generate(self, data: Any, ctx: Context, output_path: str | None = None) -> None:
         """Generates the Excel file from data collection results.
 
         Args:
             data: Data collection results.
             ctx: The application context.
+            output_path: Destination path for the Excel file. If not provided, it is
+                computed from the configured path, replacing the 'DATE' placeholder
+                with today's date if present.
         """
         builders = SheetBuilderRegistry.get_builders()
 
@@ -50,10 +55,13 @@ class ExcelEngine:
             )
             return
 
-        output_path = ctx.app_config.paths.excel.clean_path
+        if output_path is None:
+            output_path = add_date_to_filename(ctx.app_config.paths.excel.clean_path)
         rules_path = ctx.app_config.paths.excel_config.clean_path
-        employees_path = ctx.app_config.paths.employees.clean_path
-        author = ctx.app_config.author.get("fullname", "") if ctx.app_config.author else None
+        employees_path = resolve_location_path(
+            ctx, ctx.app_config.paths.employees, "employees.json"
+        )
+        author = ctx.app_config.author.fullname
 
         # Prepend the default sheet builder
         default_builder = DefaultSheetBuilder(

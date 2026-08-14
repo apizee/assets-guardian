@@ -9,6 +9,7 @@ class AssetsGuardianMode(StrEnum):
     SYNC = "sync"
     AUDIT = "audit"
     CHECK = "check"
+    SCRIPT = "script"
     UNRECOGNIZED = "unrecognized"
 
 

@@ -1,7 +1,8 @@
 import logging
 from datetime import UTC, datetime
+from unittest.mock import patch
 
-from assets_guardian.utils.dates import format_datetime, parse_datetime
+from assets_guardian.utils.dates import add_date_to_filename, format_datetime, parse_datetime
 
 
 def test_parse_datetime_iso8601():
@@ -122,3 +123,23 @@ def test_format_datetime_non_datetime_non_string_returns_str():
     """format_datetime converts non-datetime, non-string values to str via fallback."""
     result = format_datetime(42)  # type: ignore[arg-type]
     assert result == "42"
+
+
+def test_add_date_to_filename_no_placeholder_returns_unchanged():
+    """add_date_to_filename returns the path unchanged when the filename has no 'DATE'."""
+    result = add_date_to_filename("outputs/audit_report.pdf")
+
+    assert result == "outputs/audit_report.pdf"
+
+
+def test_add_date_to_filename_replaces_date_placeholder():
+    """add_date_to_filename replaces 'DATE' with today's date in the given format."""
+    fixed_now = datetime(2026, 7, 22, tzinfo=UTC)
+
+    with patch("assets_guardian.utils.dates.datetime") as mock_datetime:
+        mock_datetime.now.return_value = fixed_now
+
+        result = add_date_to_filename("outputs/audit_report_DATE.pdf")
+
+    assert result == "outputs/audit_report_2026_07_22.pdf"
+    mock_datetime.now.assert_called_once_with(UTC)

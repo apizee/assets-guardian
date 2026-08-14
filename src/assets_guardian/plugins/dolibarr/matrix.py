@@ -1,3 +1,4 @@
+import logging
 from collections.abc import Iterable
 from typing import Any
 
@@ -6,6 +7,8 @@ from assets_guardian.core.domain.models.finding import Finding, RuleCategory, Se
 from assets_guardian.core.domain.models.rules.matrix import IMatrixRule
 from assets_guardian.core.domain.registry.rule_registry import RuleRegistry
 from assets_guardian.plugins.dolibarr.constants import CRITICAL_MODULES
+
+logger = logging.getLogger(__name__)
 
 
 @RuleRegistry.register("MATRIX-001")
@@ -27,6 +30,15 @@ class DolibarrSuperadminRule(IMatrixRule):
             "Detects users with Dolibarr superadmin privileges without authorization "
             "in the authorization matrix.",
         )
+        severity_value = kwargs.get("severity")
+        if not severity_value:
+            logger.warning(
+                "Rule %s: no 'severity' configured in rules_config.yml, defaulting to %s.",
+                self.rule_id,
+                SeverityType.CRITICAL,
+            )
+            severity_value = SeverityType.CRITICAL
+        self.__severity: SeverityType = SeverityType(severity_value)
 
     @property
     def rule_category(self) -> RuleCategory:
@@ -34,7 +46,7 @@ class DolibarrSuperadminRule(IMatrixRule):
 
     @property
     def severity(self) -> SeverityType:
-        return SeverityType.CRITICAL
+        return self.__severity
 
     @property
     def target_entity(self) -> str:
@@ -168,6 +180,15 @@ class DolibarrCriticalModuleAccessRule(IMatrixRule):
             "Detects users with unauthorized rights on critical Dolibarr modules "
             "(bank, users, billing, third parties) according to the matrix.",
         )
+        severity_value = kwargs.get("severity")
+        if not severity_value:
+            logger.warning(
+                "Rule %s: no 'severity' configured in rules_config.yml, defaulting to %s.",
+                self.rule_id,
+                SeverityType.DANGER,
+            )
+            severity_value = SeverityType.DANGER
+        self.__severity: SeverityType = SeverityType(severity_value)
 
     @property
     def rule_category(self) -> RuleCategory:
@@ -175,7 +196,7 @@ class DolibarrCriticalModuleAccessRule(IMatrixRule):
 
     @property
     def severity(self) -> SeverityType:
-        return SeverityType.DANGER
+        return self.__severity
 
     @property
     def target_entity(self) -> str:

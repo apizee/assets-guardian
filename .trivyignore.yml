@@ -35,3 +35,18 @@ vulnerabilities:
   - id: CVE-2026-53615
     statement: "never probes block devices. Non-root container with no disk access."
     expired_at: 2026-12-31
+  - id: CVE-2026-13221
+    statement: "perl never invoked. No fix in Debian 13."
+    expired_at: 2026-12-31
+  - id: CVE-2026-57432
+    statement: "perl never invoked. No fix in Debian 13."
+    expired_at: 2026-12-31
+  - id: CVE-2026-57433
+    statement: "perl never invoked. No fix in Debian 13."
+    expired_at: 2026-12-31
+  - id: CVE-2025-47273
+    statement: "need to be check"
+    expired_at: 2026-08-20
+  - id: GHSA-6v7p-g79w-8964
+    statement: "need to be check"
+    expired_at: 2026-08-20

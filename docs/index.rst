@@ -13,6 +13,7 @@ Audit identities, access rights, and security compliance across all solutions in
 
    markdown/README
    markdown/GETTING_STARTED
+   markdown/ACCESS_MATRIX
    markdown/ARCHITECTURE
    markdown/PLUGIN
    markdown/CONTRIBUTING

@@ -13,7 +13,7 @@ Every kind of contribution counts. Pick the one that matches your time and exper
 | Fix an open issue | - | [Fixing Something](#-fixing-something) |
 | Improve the documentation | - | [Improving the Documentation](#-improving-the-documentation) |
 | Integrate a new IAM source | 🧩 Plugin Proposal | [Adding a Plugin](#-adding-a-plugin) |
-| Restructure core code | 💡 Feature Request | [Refactoring the Core](#-refactoring-the-core) |
+| Restructure core code | 💡 Feature Request | [Refactoring the Core](#️-refactoring-the-core) |
 
 > 💡 **Tip:** The issue templates live in `.github/ISSUE_TEMPLATE/` and are offered automatically when you open a new issue on GitHub.
 
@@ -59,7 +59,7 @@ Documentation contributions are as valuable as code, and they are a great way to
 
 - **Typos, broken links, clarifications:** submit a PR directly with a `docs` branch type, no issue needed.
 - **New guides or restructuring:** open an issue first to agree on scope and placement.
-- **Docstrings** count as documentation too, see [Code Documentation](#-code-documentation) for the expected format.
+- **Docstrings** count as documentation too, see [Code Documentation](#️-code-documentation) for the expected format.
 
 See [Contributing Documentation](#-contributing-documentation) below for how to build and preview the docs locally.
 
@@ -68,9 +68,9 @@ See [Contributing Documentation](#-contributing-documentation) below for how to 
 Plugins connect Assets Guardian to a new IAM source (GitLab, Microsoft 365, Dolibarr, etc.) without modifying the core, thanks to the registry-based architecture.
 
 1. **Always open an issue first** with the **🧩 Plugin Proposal** template, announcing the source you want to integrate, so maintainers can confirm nobody is already working on it and flag any known pitfalls.
-2. **Read the [Plugin Development Guide](#).** It walks through the architecture, every interface, and a complete example.
+2. **Read the [Plugin Development Guide](docs/markdown/PLUGIN.md).** It walks through the architecture, every interface, and a complete example.
 3. **Start from the template**: copy `src/assets_guardian/plugins/_template/` and adapt it.
-4. **Implement the required interfaces**: `IClientProvider`, `IRepository`, `IMapper`, and a `Collector`. Then add the optional ones your source needs (`ISheetBuilder`, `IRule`, `IPDFBuilder`).
+4. **Implement the two required components**: an `IClientProvider` in `client.py` and a `Collector` in `collector.py`, the only modules the discovery engine imports by name. In practice you also write an `IRepository` and an `IMapper`, which your collector wires together itself. Then add the optional ones your source needs (`ISheetBuilder`, `IRule`, `IPDFBuilder`).
 5. **Validate your plugin** against the *Testing & Validation Checklist* at the end of the Plugin Development Guide, and exercise it end-to-end with the `check`, `sync`, and `audit` commands.
 
 > ⚠️ **Warning:** Plugins are exempt from unit-test coverage requirements, but they must still pass all lint, format, and type checks.
@@ -80,7 +80,7 @@ Plugins connect Assets Guardian to a new IAM source (GitLab, Microsoft 365, Doli
 The core follows a hexagonal architecture (ports and adapters) and is held to **100 % test coverage**. Well-scoped refactors are welcome, but the bar is deliberately high:
 
 1. **Always open an issue first.** Core refactors affect every plugin and command, align with maintainers before investing time.
-2. **Read the [Software Architecture Documentation](#)** to understand the existing boundaries (domain, ports, registries, dependency injection), a good refactor reinforces them, it does not blur them.
+2. **Read the [Software Architecture Documentation](docs/markdown/ARCHITECTURE.md)** to understand the existing boundaries (domain, ports, registries, dependency injection), a good refactor reinforces them, it does not blur them.
 3. **No behaviour change**: a `refactor` commit must keep the existing tests green, only restructure tests when the code layout they mirror moves.
 4. **Keep coverage at 100 %** (see [Code Quality](#-code-quality)).
 5. **Prefer a series of small, incremental PRs** over one big-bang rewrite, each step reviewable and independently revertable.
@@ -125,7 +125,7 @@ The rules, in order:
 
 ### 🛠️ Set Up Your Environment
 
-Follow the [**Getting Started guide**](#) to set up your development environment.
+Follow the [**Getting Started guide**](docs/markdown/GETTING_STARTED.md) to set up your development environment.
 
 ### 🌿 Branch Naming
 
@@ -235,7 +235,13 @@ make security-gitleaks
 # Dockerfile linting (hadolint)
 make security-hadolint
 # equivalent to: docker run --rm -v $(shell pwd)/Dockerfile:/Dockerfile:ro hadolint/hadolint:v2.14.0-debian hadolint /Dockerfile
+
+# Trivy image scan
+make security-trivy
+# equivalent to: docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v trivy-cache:/root/.cache/trivy -v $(shell pwd)/.trivyignore.yml:/.trivyignore.yml:ro aquasec/trivy:0.58.2 image --exit-code 1 --scanners vuln --severity HIGH,CRITICAL --ignorefile /.trivyignore.yml --show-suppressed assets-guardian
 ```
+
+> 💡 **Tip:** To run all these tests at once, you can use: `make all`.
 
 #### 🐍 Pytest Details
 

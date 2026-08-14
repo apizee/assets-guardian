@@ -50,12 +50,21 @@ plugins/
     ├── repository.py        # IRepository - fetches raw data from the external source
     ├── mapper.py            # IMapper - normalizes raw data to domain models
     ├── collector.py         # Collector - orchestrates repository and mapper
-    ├── rules.py             # Optional - IRule implementations (audit mode only)
+    ├── rules.py             # Optional - entry point re-exporting the rule classes below
+    ├── compliance.py        # Optional - IComplianceRule implementations
+    ├── compare.py           # Optional - IComparisonRule implementations
+    ├── matrix.py            # Optional - IMatrixRule implementations
+    ├── excel_config.json    # Optional - declarative Excel sheets (GenericSheetBuilder)
     ├── sheet_builders.py    # Optional - ISheetBuilder implementation (sync mode only)
-    └── pdf_builder.py       # Optional - IPDFBuilder implementation (audit mode only)
+    ├── pdf_builder.py       # Optional - IPDFBuilder implementation (audit mode only)
+    └── CREDENTIALS.md       # Optional - operator guide: credentials and required permissions
 ```
 
-> Only `constants.py`, `client.py`, `repository.py`, `mapper.py`, and `collector.py` are strictly required. The rest are optional extensions depending on whether your plugin supports custom audit sheets or custom PDF reports.
+The discovery engine only ever imports **`client.py` and `collector.py`**, plus `rules.py`, `sheet_builders.py` and `pdf_builder.py` depending on the execution mode. Those are the only filenames the framework knows about, so they must be named exactly like this.
+
+`constants.py`, `repository.py` and `mapper.py` are a strong convention rather than a framework requirement: nothing loads them directly, your `collector.py` imports them itself. Splitting the rules across `compliance.py` / `compare.py` / `matrix.py` is the same kind of convention, only `rules.py` is imported, and it re-exports the classes defined in those files.
+
+> 💡 **Tip:** `plugins/_template/` is a working skeleton containing all of the above. Copy it as your starting point rather than creating files one by one.
 
 ## Core Interfaces (Required)
 
@@ -92,6 +101,16 @@ class IClientProvider(ABC):
 ```
 
 > `health_check` must never raise exceptions. Always catch connection errors, log them, and return `False`.
+
+`core/clients/` ships three reusable low-level clients. Wrap one of them, or return any client object your source needs, the framework never inspects the type:
+
+| Client | File | Use for |
+| :--- | :--- | :--- |
+| `HttpClient` | `core/clients/http_client.py` | REST APIs over HTTP, with header-based authentication |
+| `MySQLClient` | `core/clients/mysql_client.py` | Sources read straight from a MySQL database |
+| `MicrosoftGraph` | `core/clients/microsoft_client.py` | Microsoft Graph, wrapping `GraphServiceClient` and the Azure credential flow. Takes `tenant_id`, `client_id`, `client_secret` and `graph_scopes` |
+
+> 💡 **Tip:** `MicrosoftGraph` is not only used by the Microsoft 365 plugin: `core/microsoft365/` relies on it to resolve `remote:` SharePoint paths and to send the audit report by email, for any plugin.
 
 **Example:**
 
@@ -148,12 +167,7 @@ class IRepository(ABC):
 
 > Return `Iterable` (generators or lazy iterables) to optimize memory footprint when fetching large quantities of records.
 
-**Example:**
-
-> TODO: Complete with an example...
-
-```python
-```
+**Example:** see [`plugins/myplugin/repository.py`](#pluginsmypluginrepositorypy) in the complete example below.
 
 ### `IMapper`
 
@@ -196,12 +210,8 @@ class IMapper(ABC):
         raise NotImplementedError
 ```
 
-**Example:**
+**Example:** see [`plugins/myplugin/mapper.py`](#pluginsmypluginmapperpy) in the complete example below.
 
-> TODO: Complete with an example...
-
-```python
-```
 
 ### `Collector`
 
@@ -231,12 +241,7 @@ class Collector:
 
 > The base `Collector` class provides default loop implementations that fetch raw items from the repository and map them. You only need to override `collect_*` methods if you require custom filtering, secondary API requests, or advanced orchestration.
 
-**Example:**
-
-> TODO: Complete with an example...
-
-```python
-```
+**Example:** see [`plugins/myplugin/collector.py`](#pluginsmyplugincollectorpy) in the complete example below.
 
 ## Optional Interfaces
 
@@ -244,8 +249,6 @@ class Collector:
 
 **File:** `core/domain/ports/sheet_builders.py`
 **Purpose:** Dictates how sync data is printed to the output Excel reference sheet and which manual columns should be protected during regenerations.
-
-> TODO: Clarify that this interface describes an optional integration to override, at the plugin level, the Excel sheet building logic.
 
 ```python
 class ISheetBuilder(ABC):
@@ -302,6 +305,10 @@ class ISheetBuilder(ABC):
         raise NotImplementedError
 ```
 
+> ⚠️ **Warning:** `source_name` is declared on the interface, but the Excel writer also reads an **`instance_id`** attribute on your builder to name sheets per instance (`Myplugin (prod) Users`). It is looked up with `getattr`, so a builder that does not expose it does not crash: it silently falls back to the generic sheet name, and two instances of the same plugin then collide on the same sheet. Expose both when your plugin is multi-instance.
+>
+> 💡 **Tip:** Every sheet your builder returns is automatically read-only locked in Excel and checksummed for tamper detection by `ExcelWriter` (unless its name ends in `" Matrix"`) — there is nothing to opt into or configure on your side. See `ExcelWriter.__protect_sheet` / `__finalize_integrity_signature` in `core/reporting/excel/writer.py`.
+
 **Example:**
 
 > TODO: Complete with an example...
@@ -356,21 +363,82 @@ class IRule(ABC):
         raise NotImplementedError
 ```
 
-> TODO: Explain the different interfaces inheriting from this IRule interface for the different rule types.
+**Never inherit from `IRule` directly.** Pick the sub-interface matching what the rule compares, it determines which arguments the engine passes to `evaluate()`:
+
+| Sub-interface | File | Category | `evaluate()` receives | Use it for |
+| --- | --- | --- | --- | --- |
+| `IComplianceRule` | `models/rules/compliance.py` | `COMPLIANCE` | `entries`, `config` | A criterion checked on live identities or assets (MFA disabled, inactive account) |
+| `IComparisonRule` | `models/rules/comparison.py` | `COMPARISON` | `old_data`, `new_data` | A change since the last `sync`, using the Excel workbook as baseline (user added, MFA revoked) |
+| `IMatrixRule` | `models/rules/matrix.py` | `MATRIX` | `accesses`, `matrix`, `profiles` | Active grants versus the authorized access matrix (see [ACCESS_MATRIX.md](ACCESS_MATRIX.md)) |
+
+**Reading `severity` from the configuration.** `severity` is a property of your class, but its value must come from `rules_config.yml`, never be hardcoded. Read it in `__init__` from `kwargs`, and when it is absent **log a warning and fall back to a default** rather than raising: an unconfigured severity must not abort the audit.
+
+```python
+@RuleRegistry.register("COMPLIANCE-001")
+class MyPluginInactiveAccountRule(IComplianceRule):
+    rule_id: str = "COMPLIANCE-001"
+
+    def __init__(self, **kwargs: Any) -> None:
+        self._name = kwargs.get("name", "Inactive account")
+        self._description = kwargs.get("description", "The account is disabled on the source.")
+
+        severity_value = kwargs.get("severity")
+        if not severity_value:
+            logger.warning(
+                "Rule %s: no 'severity' configured in rules_config.yml, defaulting to %s.",
+                self.rule_id,
+                SeverityType.WARNING,
+            )
+            severity_value = SeverityType.WARNING
+        self._severity = SeverityType(severity_value)
+
+    @property
+    def severity(self) -> SeverityType:
+        return self._severity
+```
+
+> ⚠️ **Warning:** Test `if not severity_value` explicitly, do **not** rely on `kwargs.get("severity", DEFAULT)`. The default of `.get()` only applies when the key is **missing**: a key present but left empty in the YAML (`severity:` with no value) yields `None`, and `SeverityType(None)` raises a `ValueError` that aborts the whole audit.
+>
+> 💡 **Tip:** Every field of a rule entry in `rules_config.yml` reaches `__init__` through `kwargs`, so custom parameters (thresholds, IP ranges, flags) are read exactly the same way. Apply the same warning-and-fallback treatment to them.
+>
+> 💡 **Tip:** If your plugin registers several rules, extract the warning-and-fallback logic into a small module-level helper (e.g. `_resolve_severity(rule_id, raw_severity, default)`) instead of duplicating it in every `__init__`. See `plugins/default_rules.py` for a concrete example shared by the `CTRL_HUMAN_*`/`CTRL_SERVICE_*`/`CTRL_GENERIC_*` rules.
 
 **Example:**
 
-> TODO: Complete with an example...
+The `CTRL_HUMAN_*` rules in `plugins/default_rules.py` verify that identity fields (last name, first name, username, email, ...) follow the company's identity-naming convention. Each rule inspects a single, narrow criterion on `entries` filtered by `identity.identity_type`, and only emits a `Finding` when the field is present but incorrectly formatted — a rule never flags a field that the source simply does not provide (e.g. GitLab has no separate `first_name`/`last_name`, only a merged `name`), it silently skips those identities instead of guessing:
 
 ```python
+@RuleRegistry.register("CTRL_HUMAN_LAST_NAME")
+class HumanLastNameFormatRule(IComplianceRule):
+    rule_id: str = "CTRL_HUMAN_LAST_NAME"
+
+    def __init__(self, **kwargs: Any) -> None:
+        self.__name = kwargs.get("name", "Last name not uppercase")
+        self.__description = kwargs.get(
+            "description",
+            "Last name must be entered entirely in uppercase, while preserving "
+            "accents and special characters (e.g. hyphens).",
+        )
+        self.__severity = _resolve_severity(
+            self.rule_id, kwargs.get("severity"), SeverityType.WARNING
+        )
+
+    @property
+    def severity(self) -> SeverityType:
+        return self.__severity
+
+    def evaluate(self, entries: Iterable[Identity], config: dict[Any, Any] | None = None):
+        for identity in entries:
+            if identity.identity_type != IdentityType.HUMAN:
+                continue
+            if identity.last_name and identity.last_name != identity.last_name.upper():
+                yield Finding(...)
 ```
 
 ### `IPDFBuilder` (Audit Mode)
 
 **File:** `core/domain/ports/pdf_builders.py`
 **Purpose:** Appends custom styled chapters summarizing plugin-specific findings inside the compiled PDF report.
-
-> TODO: Same remark as for ISheetBuilder: this interface describes an optional integration to override, at the plugin level, the PDF building logic.
 
 ```python
 class IPDFBuilder(ABC):
@@ -415,17 +483,39 @@ class IPDFBuilder(ABC):
 
 Decoupled components register themselves dynamically using Python decorators.
 
-> TODO: IRule is partially optional and ISheetBuilder/IPDFBuilder are fully optional.
+| Component | Target Registry | Decorator | Required |
+| --- | --- | --- | :---: |
+| `IClientProvider` | `ClientProviderRegistry` | `@ClientProviderRegistry.register("myplugin")` | ✅ |
+| `Collector` | `CollectorRegistry` | `@CollectorRegistry.register("myplugin")` | ✅ |
+| `IRule` | `RuleRegistry` | `@RuleRegistry.register("COMPLIANCE-001")` | ⚠️ |
+| `ISheetBuilder` | `SheetBuilderRegistry` | `@SheetBuilderRegistry.register("myplugin")` | ❌ |
+| `IPDFBuilder` | `PDFBuilderRegistry` | `@PDFBuilderRegistry.register("myplugin")` | ❌ |
 
-| Component | Target Registry | Decorator |
-| --- | --- | --- |
-| `IClientProvider` | `ClientProviderRegistry` | `@ClientProviderRegistry.register("myplugin")` |
-| `Collector` | `CollectorRegistry` | `@CollectorRegistry.register("myplugin")` |
-| `IRule` | `RuleRegistry` | `@RuleRegistry.register("MYPLUGIN-001")` |
-| `ISheetBuilder` | `SheetBuilderRegistry` | `@SheetBuilderRegistry.register("myplugin")` |
-| `IPDFBuilder` | `PDFBuilderRegistry` | `@PDFBuilderRegistry.register("myplugin")` |
+The two first are **mandatory**: without them the plugin cannot authenticate nor collect anything, and it is effectively absent from every command.
+
+`IRule` is **partially optional**. A plugin with no rule of its own still collects and syncs normally, and still benefits from the built-in `DEFAULT-XXX` and `CTRL_*` rules of `plugins/default_rules.py`, which any source can inherit by pulling the `<<: *default_rules` anchor into its `rules_config.yml` section. It simply contributes no source-specific finding to the audit.
+
+`ISheetBuilder` and `IPDFBuilder` are **fully optional**, because the framework provides a fallback for each. Without a sheet builder, the `GenericSheetBuilder` renders your sheets from `excel_config.json`, which is the recommended path. Without a PDF builder, findings are still rendered in the report using the default layout, only without a section styled specifically for your source.
 
 > Do not register `IRepository` or `IMapper`. They are instantiated internally within the plugin's `Collector`.
+
+### Naming rule IDs
+
+`RuleRegistry.register()` accepts any string, and namespaces it under the source it infers from the module path, so `gitlab`'s `MATRIX-001` and `dolibarr`'s `MATRIX-001` are two independent rules that never collide. The recommended convention is therefore to name rules **by category, not by plugin**:
+
+| Prefix | Category | Interface |
+| :--- | :--- | :--- |
+| `COMPLIANCE-XXX` | Criterion checked on live data | `IComplianceRule` |
+| `COMPARE-XXX` | Change since the last `sync` | `IComparisonRule` |
+| `MATRIX-XXX` | Grants versus the access matrix | `IMatrixRule` |
+| `DEFAULT-XXX` | *Reserved* for the built-in rules of `plugins/default_rules.py` | `IComplianceRule` |
+| `CTRL_HUMAN_*` / `CTRL_SERVICE_*` / `CTRL_GENERIC_*` | *Reserved* for the built-in identity naming-convention rules of `plugins/default_rules.py` | `IComplianceRule` |
+
+Numbering restarts at `001` per category and per plugin. A plugin-prefixed form (`MYPLUGIN-001`) also works and appears in a few places in the codebase, but it carries no information about the rule's category, which is what actually determines the arguments `evaluate()` receives.
+
+> ⚠️ **Warning:** Never register a rule of your own under a `DEFAULT-XXX` or `CTRL_*` ID. Those IDs belong to the built-in rules shared by every source, and reusing one under your plugin's namespace makes `rules_config.yml` ambiguous to read.
+>
+> 💡 **Exception to the numbering convention:** unlike every other prefix, `CTRL_<TYPE>_<FIELD>` does not end in a numeric suffix. Each ID instead mirrors, field for field, the identity-creation naming-convention procedure it enforces (e.g. `CTRL_HUMAN_LAST_NAME` checks the "last name" attribute for human identities), so the rule ID stays traceable back to that source document rather than to an arbitrary sequence number.
 
 ## JSON Excel Configuration (Generic Sheet Builder)
 
@@ -445,6 +535,11 @@ A plugin's Excel configuration is structured as a dictionary of sheet configurat
         "field": "external_id",
         "is_primary_key": true,
         "width": 12
+      },
+      {
+        "column_name": "Full Name",
+        "field": "name",
+        "width": 25
       },
       {
         "column_name": "Account Type",
@@ -524,13 +619,29 @@ A plugin's Excel configuration is structured as a dictionary of sheet configurat
 - **`field`** (String, optional): The name of the property to retrieve from the domain model. If omitted (e.g. for user annotations like "Comments"), the field won't read raw data. The engine automatically checks:
   1. Direct class attributes (e.g. `item.email`).
   2. Fallback keys in the model's `metadata` dictionary (e.g. `item.metadata.get(field)`).
-- **`is_primary_key`** (Boolean, default: `false`): Marks this column as a composite primary key. Required for preserving manual inputs when data rows are refreshed.
+- **`is_primary_key`** (Boolean, default: `false`): Marks this column as a composite primary key. Required for preserving manual inputs when data rows are refreshed. It also drives the baseline re-read: once at least one column declares it, any row whose primary-key cells are all empty is skipped instead of being turned into a model.
 - **`is_preserved`** (Boolean, default: `false`): Tells the engine to carry over manual user edits made in this column on subsequent syncs.
 - **`width`** (Integer, default: `20`): Column width in characters.
 
 > TODO: Challenge the role of the mapping attribute; review its implications in Assets Guardian, possibly together with the mapper used when reading the Excel workbook.
 
 - **`mapping`** (Object, optional): Translates Python raw types to readable sheet strings (e.g., `{"Enabled": true, "Disabled": false}`).
+
+#### Columns required by the round-trip
+
+The same `excel_config.json` is used twice: during `sync` to **write** the sheets, and during `audit` to **read the previous workbook back** into domain models so comparison rules can diff against it. That second pass rebuilds each row by calling the model's constructor with the columns that declare a `field`.
+
+A column must therefore be mapped to **every required constructor argument** of the sheet's `data_source` model, otherwise no row can be rebuilt:
+
+| `data_source` | Fields a column must map to |
+| :--- | :--- |
+| `identities` | `external_id`, `name` |
+| `assets` | `external_id`, `asset_type`, `name` |
+| `accesses` | `access_type`, `name` |
+
+`source` is injected by the parser, and `identity_type` falls back to `GENERIC`, so neither needs a column.
+
+> ⚠️ **Warning:** A missing required field fails **silently**. The row is dropped, `Failed to instantiate model <Model>.` is logged, and the audit continues against an empty baseline, so comparison rules simply find nothing to report. `name` is the easy one to forget, since it is rarely displayed under that title: map it from whatever column carries the display name (`Full Name`, `Display Name`, ...).
 
 ### Rules & Formatting Reference
 
@@ -589,17 +700,32 @@ myplugin:
 
 Configure thresholds and severities for rules dynamically via `config/rules_config.yml`:
 
+> ⚠️ **Warning:** `severity` accepts exactly four values, in **uppercase**: `INFO`, `WARNING`, `DANGER`, `CRITICAL`. They are the values of the `SeverityType` enum, so any other spelling (`"High"`, or even `"Warning"` in mixed case) raises a `ValueError` at rule instantiation.
+
 ```yaml
 myplugin:
-  MYPLUGIN-001:
+  <<: *default_rules          # Optional: inherit the built-in DEFAULT-XXX and CTRL_* rules
+  COMPLIANCE-001:
     description: "Description of the rule"
-    severity: "Warning"
-  MYPLUGIN-002:
+    severity: "WARNING"
+  MATRIX-001:
     description: "Description of the rule"
-    severity: "High"
+    severity: "DANGER"
+    my_custom_threshold: 30   # Free-form parameter, read by the rule itself
 ```
 
-> TODO: Explain the fields involved in declaring rules, including the "custom_parameters".
+> ⚠️ **Warning:** A rule is instantiated **only** if its ID appears under the plugin's section here. A rule implemented and registered in Python but absent from this file is silently ignored at runtime, no warning is logged.
+>
+> 💡 **Tip:** Custom parameters deserve the same defensive reading as `severity`: check for a missing **or empty** value, log a warning, and fall back to a sane default rather than raising. See [`IRule`](#irule-audit-mode) above.
+
+Every key under a rule ID is forwarded as-is to the rule's `__init__` through `**kwargs`. Three of them are conventional and understood by all rules, the rest are free-form:
+
+| Field | Read by | Purpose |
+| :--- | :--- | :--- |
+| `name` | The rule | Short title of the finding in the report. Falls back to a value hardcoded in the rule |
+| `description` | The rule | Detailed wording of the finding. Falls back to a value hardcoded in the rule |
+| `severity` | The rule | Ranking and colour of the finding. Falls back to the rule's default, with a warning |
+| *anything else* | The rule | **Custom parameters**: thresholds, IP ranges, module lists, flags. What is accepted depends entirely on the rule's implementation, the framework never inspects them |
 
 ## Plugin Lifecycle & Data Flow
 

@@ -180,9 +180,13 @@ class PDFWriter:
         self,
         pdf_builders: list[IPDFBuilder] | None = None,
         rules_file_path: str | Path | None = None,
+        author_fullname: str | None = None,
+        author_email: str | None = None,
     ):
         self.builders = {h.source_name: h for h in (pdf_builders or [])}
         self.rules = load_rules(rules_file_path)
+        self.author_fullname = author_fullname
+        self.author_email = author_email
 
     def write(self, reports: Iterable[Report], output_path: str | Path) -> None:
         logger.info("Starting PDF report generation: %s", output_path)
@@ -257,6 +261,12 @@ class PDFWriter:
             new_x=XPos.LMARGIN,
             new_y=YPos.NEXT,
         )
+
+        if self.author_fullname or self.author_email:
+            pdf.ln(2)
+            pdf.apply_font("body")
+            author_line = " - ".join(filter(None, [self.author_fullname, self.author_email]))
+            pdf.cell(0, 5, f"By {author_line}", align="C", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
 
     def __write_summary(self, pdf: AGPDF, reports: Iterable[Report]) -> None:
         pdf.add_page()

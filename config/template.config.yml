@@ -4,17 +4,24 @@ author:
   fullname: "First name LAST NAME"
   email: "...@example.com"
 
+notification_email:
+  - "...@example.com"
+  - "...@example.com"
+
 logging:
   console_level: "info"
   file_level: "debug"
   file-basename: "assets-guardian"
   max-size: 10 # MB
   max-files: 3
+  path: "local:logs"
 
 paths:
   excel: "local:outputs/assets_guardian.xlsx"
   pdf: "local:outputs/audit_report.pdf"
   rules: "local:config/rules_config.yml"
+  excel_config: "local:config/excel_config.json"
+  pdf_config: "local:config/pdf_config.json"
   employees: "local:config/employees.json"
 
 cache:
@@ -38,8 +45,7 @@ dolibarr:
       dolapikey: "${DOLIBARR_TOKEN}" # resolved from environment variable
 
 microsoft365:
-  main:
-    url: "https://graph.microsoft.com/.default"
+  main: # No "url" key: the Microsoft Graph endpoint is resolved by the SDK
     credentials:
       tenant_id: "${M365_MAIN_TENANT_ID}" # resolved from environment variable
       application_id: "${M365_MAIN_APPLICATION_ID}" # resolved from environment variable

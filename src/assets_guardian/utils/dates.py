@@ -1,5 +1,6 @@
 import logging
 from datetime import UTC, datetime
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -142,3 +143,23 @@ def format_datetime(value: datetime | str | None) -> str:
         return str(value)
 
     return value.strftime("%d/%m/%Y %H:%M:%S")
+
+
+def add_date_to_filename(path: str | Path, date_format: str = "%Y_%m_%d") -> str:
+    """Replaces the 'DATE' placeholder in the filename with today's date, if present.
+
+    Args:
+        path: Original file path (e.g. 'outputs/audit_report_DATE.pdf').
+        date_format: strftime format used for the date.
+
+    Returns:
+        str: The path with 'DATE' replaced by today's date (e.g.
+            'outputs/audit_report_2026_07_08.pdf'), or unchanged if the filename
+            has no 'DATE' placeholder (e.g. 'outputs/audit_report.pdf').
+    """
+    p = Path(path)
+    if "DATE" not in p.name:
+        return str(p)
+
+    today = datetime.now(UTC).strftime(date_format)
+    return str(p.with_name(p.name.replace("DATE", today)))

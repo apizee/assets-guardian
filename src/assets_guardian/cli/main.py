@@ -4,6 +4,7 @@ import logging
 
 import click
 
+import assets_guardian.utils.timer as timer
 from assets_guardian.core.config.app_config import AppConfig
 from assets_guardian.core.config.loader import get_project_version, load_yaml_config
 from assets_guardian.core.domain.models.context import AssetsGuardianMode, Context
@@ -12,6 +13,7 @@ from assets_guardian.core.logging.logger import init_logging
 
 from .audit import run_audit_command
 from .check import run_check_command
+from .script import run_script_command
 from .sync import run_sync_command
 
 BANNER = r"""                    ***++++*++
@@ -96,7 +98,9 @@ def sync(ctx: click.Context) -> None:
     information, then updates the reference Excel file while preserving manual changes
     and specific tabs.
     """
+    start = timer.start_timer()
     run_sync_command(ctx.obj)
+    timer.end_timer(start)
 
 
 @cli.command()
@@ -108,7 +112,9 @@ def audit(ctx: click.Context) -> None:
     configured compliance, comparison, and security matrix rules. It produces an audit report
     detailing security gaps and vulnerabilities.
     """
+    start = timer.start_timer()
     run_audit_command(ctx.obj)
+    timer.end_timer(start)
 
 
 @cli.command()
@@ -119,7 +125,23 @@ def check(ctx: click.Context) -> None:
     This command tests the connection and authentication with all configured APIs
     and databases to ensure their proper operational function.
     """
+    start = timer.start_timer()
     run_check_command(ctx.obj)
+    timer.end_timer(start)
+
+
+@cli.command()
+@click.argument("name")
+@click.pass_context
+def script(ctx: click.Context, name: str) -> None:
+    """Executes a custom Python script from the local scripts/ directory.
+
+    This advanced command loads scripts/NAME.py (the .py suffix is optional) and calls
+    its mandatory run(ctx) function with the full application context: configuration,
+    logging system, and registered source clients. Scripts are arbitrary Python executed
+    without guardrails; this power-user feature is aimed at tinkerers, not day-to-day use.
+    """
+    run_script_command(ctx.obj, name)
 
 
 if __name__ == "__main__":

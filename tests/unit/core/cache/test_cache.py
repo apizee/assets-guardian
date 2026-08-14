@@ -284,18 +284,34 @@ def test_cache_load_non_existent(tmp_path):
 
 
 def test_cache_cleanup(tmp_path):
-    """Verify that cleanup removes files specifically associated with the requested flow only."""
+    """Verify that cleanup empties the entire cache directory in production, regardless of
+    the file's associated command or extension."""
     config = CacheConfig(batch_size=64, cache_dir=str(tmp_path))
     cache = CacheManager(config=config)
     file1 = cache.get_file_path("sync", "s1", "i1", "d1")
     file2 = cache.get_file_path("audit", "s2", "i2", "d2")
+    other_file = tmp_path / "employees.json"
 
     file1.touch()
     file2.touch()
+    other_file.touch()
 
     cache.cleanup("sync", AppEnv.PROD)
     assert not file1.exists()
-    assert file2.exists()
+    assert not file2.exists()
+    assert not other_file.exists()
+
+
+def test_cache_cleanup_skips_subdirectories(tmp_path):
+    """Verify that cleanup ignores subdirectories found in the cache directory."""
+    config = CacheConfig(batch_size=64, cache_dir=str(tmp_path))
+    cache = CacheManager(config=config)
+    subdir = tmp_path / "some_subdir"
+    subdir.mkdir()
+
+    cache.cleanup("sync", AppEnv.PROD)
+
+    assert subdir.exists()
 
 
 def test_has_checkpoint(tmp_path):

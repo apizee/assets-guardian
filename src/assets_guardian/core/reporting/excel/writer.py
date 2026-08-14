@@ -1,5 +1,8 @@
 import datetime
+import hashlib
+import json
 import logging
+import math
 from pathlib import Path
 from typing import Any, Literal
 
@@ -7,6 +10,7 @@ import openpyxl
 from openpyxl import Workbook
 from openpyxl.cell import Cell, WriteOnlyCell
 from openpyxl.formatting.rule import Rule
+from openpyxl.packaging.custom import StringProperty
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.styles.differential import DifferentialStyle
 from openpyxl.utils import get_column_letter
@@ -20,14 +24,28 @@ from .rules_loader import load_rules
 
 logger = logging.getLogger(__name__)
 
+# Sheet protection is UI-only (blocks editing in Excel), not real security:
+# openpyxl's protection is trivially bypassable and never verified by this tool
+# itself, so the password never needs to be known or communicated to anyone.
+_PROTECTION_PASSWORD = "placeholder"  # noqa: S105  # nosec B105
+
+# Name of the custom document property storing the integrity checksum of the
+# auto-generated sheets (everything except "... Matrix" sheets, which are
+# meant to be edited by hand and are therefore excluded from the checksum).
+_CHECKSUM_PROPERTY_NAME = "assets_guardian_checksum"
+
 
 class ExcelWorksheet:
     """Wrapper around an openpyxl sheet to simplify writing and tracking."""
+
+    _LINE_HEIGHT = 15  # points per line (Calibri 11pt)
 
     def __init__(self, sheet: Any):
         self.sheet = sheet
         self.row_count = 0
         self.column_indices: dict[str, int] = {}  # Column name -> 1-based index
+        self.auto_row_height: bool = False
+        self._column_widths: list[int | float] = []
 
     @property
     def title(self) -> str:
@@ -36,6 +54,7 @@ class ExcelWorksheet:
 
     def set_column_widths(self, widths: list[int] | list[float]) -> None:
         """Sets the column widths by index (1-based)."""
+        self._column_widths = list(widths)
         for i, width in enumerate(widths, 1):
             letter = get_column_letter(i)
             self.sheet.column_dimensions[letter].width = width
@@ -53,8 +72,25 @@ class ExcelWorksheet:
                 self.__apply_cell_style(cell, val)
             cells.append(cell)
 
+        if self.auto_row_height and not is_header:
+            height = self._estimate_row_height(values)
+            self.sheet.row_dimensions[self.row_count + 1].height = height
         self.sheet.append(cells)
         self.row_count += 1
+
+    def _estimate_row_height(self, values: list[Any]) -> float:
+        """Estimates the row height needed to display all cell values with wrap_text."""
+        max_lines = 1
+        for i, val in enumerate(values):
+            if not isinstance(val, str) or not val:
+                continue
+            col_width = self._column_widths[i] if i < len(self._column_widths) else 20
+            chars_per_line = max(1, col_width)
+            lines = sum(
+                max(1, math.ceil(len(segment) / chars_per_line)) for segment in val.split("\n")
+            )
+            max_lines = max(max_lines, lines)
+        return max_lines * self._LINE_HEIGHT
 
     @staticmethod
     def __apply_header_style(cell: Cell) -> None:
@@ -116,12 +152,14 @@ class ExcelWriter:
 
         rules = self.__load_all_rules(rules_file_path)
         existing_data = self.__load_existing_data(existing_file_path)
+        self.__verify_integrity(existing_file_path, existing_data)
 
         workbook: Workbook = openpyxl.Workbook(write_only=True)
         for builder in self.sheet_builders:
             self.__process_builder(workbook, builder, data, existing_data, rules)
 
         workbook.save(output_path)
+        self.__finalize_integrity_signature(output_path)
         size = Path(output_path).stat().st_size
         logger.info("File created: %s (size: %.2f MB)", output_path, size / 1024 / 1024)
 
@@ -145,6 +183,107 @@ class ExcelWriter:
             except Exception:
                 logger.exception("Error reading existing file: %s", path)
         return {}
+
+    def __verify_integrity(self, path: str | Path | None, existing_data: dict[str, Any]) -> None:
+        """Warns if any sheet was altered outside this tool.
+
+        Compares, per sheet, the checksum stored in the existing file (from
+        the previous write) against a freshly computed one over its current
+        content. A mismatch on a given sheet means it was edited (or the
+        file replaced) between the last write and now — including "...
+        Matrix" sheets, which are otherwise left unprotected and editable on
+        purpose: this check still reports on them, it just never blocks the
+        edit itself.
+
+        Args:
+            path: Path to the existing Excel file, if any.
+            existing_data: Content of the existing file, as returned by
+                `read_workbook` (empty dict if there was no existing file).
+        """
+        if not path or not existing_data:
+            return
+
+        stored_checksums, last_modified_by, modified_at = self.__read_integrity_metadata(path)
+        if not stored_checksums:
+            return
+
+        altered_sheets = [
+            name
+            for name, sheet in existing_data.items()
+            if name in stored_checksums
+            and self.__compute_checksum(self.__flatten_sheet(sheet)) != stored_checksums[name]
+        ]
+
+        if altered_sheets:
+            logger.warning(
+                "Integrity check failed for %s: the following sheets were modified "
+                "outside Assets Guardian since the last 'sync' (file last saved by "
+                "%s on %s): %s.",
+                path,
+                last_modified_by or "an unknown user",
+                modified_at or "an unknown date",
+                ", ".join(altered_sheets),
+            )
+
+    @staticmethod
+    def __flatten_sheet(sheet: dict[str, Any]) -> list[list[Any]]:
+        """Rebuilds the [header_row, *content_rows] shape from `read_workbook` output."""
+        sorted_indices = sorted(sheet["header"].keys())
+        header_row = [sheet["header"][i]["title"] for i in sorted_indices]
+        return [header_row, *sheet["content"]]
+
+    def __read_integrity_metadata(
+        self, path: str | Path
+    ) -> tuple[dict[str, str], str | None, datetime.datetime | None]:
+        """Reads the stored per-sheet checksums and last-save metadata of an existing file.
+
+        The author/date come from the file's standard OOXML core properties
+        (`lastModifiedBy`, `modified`), filled in automatically by Excel on
+        every save. This is self-reported, not cryptographically verified -
+        useful context for a human reading the warning, not proof of anything.
+        """
+        try:
+            workbook = openpyxl.load_workbook(path, read_only=True)
+            try:
+                checksums: dict[str, str] = {}
+                for prop in workbook.custom_doc_props.props:  # type: ignore[attr-defined]
+                    if prop.name == _CHECKSUM_PROPERTY_NAME:
+                        checksums = dict(json.loads(str(prop.value)))
+                        break
+                return checksums, workbook.properties.lastModifiedBy, workbook.properties.modified
+            finally:
+                workbook.close()
+        except Exception:
+            logger.exception("Error reading integrity metadata from %s", path)
+        return {}, None, None
+
+    @staticmethod
+    def __compute_checksum(rows: list[list[Any]]) -> str:
+        """Computes a deterministic checksum over a single sheet's rows."""
+        canonical = json.dumps(rows, sort_keys=True, default=str)
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+    def __finalize_integrity_signature(self, output_path: str | Path) -> None:
+        """Stamps the just-saved file with a per-sheet checksum of its content.
+
+        Re-reads the file that was just saved (rather than the in-memory
+        values passed to `append_row`) so the checksum reflects exactly what
+        ends up on disk, e.g. booleans are stored as 0/1 in cells but were
+        still plain Python bools when written — computing the checksum from
+        the raw written values would then never match what a later `read_workbook`
+        sees, causing permanent false-positive integrity warnings.
+        """
+        saved_data = read_workbook(output_path)
+        checksums = {
+            name: self.__compute_checksum(self.__flatten_sheet(sheet))
+            for name, sheet in saved_data.items()
+        }
+
+        workbook = openpyxl.load_workbook(output_path)
+        workbook.custom_doc_props.append(  # type: ignore[attr-defined]
+            StringProperty(name=_CHECKSUM_PROPERTY_NAME, value=json.dumps(checksums))
+        )
+        workbook.save(output_path)
 
     def __process_builder(
         self,
@@ -204,6 +343,19 @@ class ExcelWriter:
 
         self.__apply_rules(worksheet, sheet_rules)
 
+        if not sheet_name.lower().endswith(" matrix"):
+            self.__protect_sheet(worksheet)
+
+    def __protect_sheet(self, worksheet: ExcelWorksheet) -> None:
+        """Locks a sheet against edits within Excel's UI.
+
+        This is a deterrent, not real security: openpyxl's protection is
+        trivially bypassable and this tool never needs to unlock it itself,
+        since the whole workbook is rebuilt from scratch on every write.
+        """
+        worksheet.sheet.protection.sheet = True
+        worksheet.sheet.protection.set_password(_PROTECTION_PASSWORD)
+
     def __copy_sheet(self, workbook: Workbook, sheet_name: str, sheet_info: dict[str, Any]) -> None:
         """Copies an existing sheet as-is into the new workbook."""
         sheet = workbook.create_sheet(sheet_name)
@@ -217,9 +369,9 @@ class ExcelWriter:
         sorted_indices = sorted(header_info.keys())
         header_titles = [header_info[i]["title"] for i in sorted_indices]
 
-        # If it is a matrix, apply original widths (50 for profiles, 20 for scopes)
+        # If it is a matrix, apply original widths (70 for profiles, 40 for scopes)
         if sheet_name.lower().endswith(" matrix"):
-            widths = [50] + [20] * (len(sorted_indices) - 1)
+            widths = [70] + [40] * (len(sorted_indices) - 1)
         else:
             widths = [header_info[i].get("width", 15) for i in sorted_indices]
 
@@ -536,8 +688,8 @@ class ExcelWriter:
             "Project: Example",
         ]
 
-        # Widths: 50 for the first column, 20 for others
-        widths: list[int] | list[float] = [50] + [20] * (len(header) - 1)
+        # Widths: 70 for the first column, 40 for others
+        widths: list[int] | list[float] = [70] + [40] * (len(header) - 1)
         worksheet.set_column_widths(widths)
         worksheet.append_row(header, is_header=True)
 

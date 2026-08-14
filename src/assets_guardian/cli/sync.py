@@ -1,4 +1,5 @@
 import logging
+from pathlib import Path
 
 from assets_guardian.core.cache.cache import CacheManager
 from assets_guardian.core.domain.engines.check_engine import CheckEngine
@@ -6,6 +7,8 @@ from assets_guardian.core.domain.engines.excel_engine import ExcelEngine
 from assets_guardian.core.domain.engines.sync_engine import SyncEngine
 from assets_guardian.core.domain.models.context import AssetsGuardianMode, Context
 from assets_guardian.core.domain.registry.collector_factory import instantiate_collectors
+from assets_guardian.core.microsoft365.upload_microsoft365 import push_to_location
+from assets_guardian.utils.dates import add_date_to_filename
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +21,7 @@ def run_sync_command(ctx: Context) -> None:
     2. Loading active collectors.
     3. Initializing the synchronization engine and its cache.
     4. Running the synchronization (collection).
-    5. Generating the Excel repository via ExcelEngine.
+    5. Generating the Excel repository and pushing it to SharePoint if configured as remote.
     6. Final cleanup of the temporary synchronization cache.
 
     Args:
@@ -47,9 +50,21 @@ def run_sync_command(ctx: Context) -> None:
         results = sync_engine.run(collectors)
         logger.debug("Synchronization engine executed successfully.")
 
+        excel_location = ctx.app_config.paths.excel
+        filename = Path(add_date_to_filename(excel_location.clean_path)).name
+
+        if excel_location.is_local:
+            output_path = add_date_to_filename(excel_location.clean_path)
+        else:
+            output_path = str(Path(ctx.app_config.cache.cache_dir) / filename)
         # Generating the Excel file
-        excel_engine.generate(results, ctx)
+        excel_engine.generate(results, ctx, output_path=output_path)
         logger.debug("Excel repository generation completed successfully.")
+        if push_to_location(ctx, excel_location, output_path):
+            if excel_location.is_remote:
+                logger.info("Excel repository pushed to SharePoint.")
+        else:
+            logger.error("Failed to push the Excel repository to SharePoint")
     finally:
         # Temporary cache cleanup
         sync_engine.cache.cleanup(AssetsGuardianMode.SYNC, env=ctx.app_config.env)

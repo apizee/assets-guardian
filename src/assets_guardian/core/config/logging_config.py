@@ -1,8 +1,9 @@
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from assets_guardian.core.config.loader import get_config_value
+from assets_guardian.core.domain.models.location import Location
 from assets_guardian.core.domain.models.validator import validate_field
 
 DEFAULT_LOGGING_CONSOLE_LEVEL = "INFO"
@@ -10,6 +11,7 @@ DEFAULT_LOGGING_FILE_LEVEL = "DEBUG"
 DEFAULT_LOGGING_MAX_SIZE = "10"
 DEFAULT_LOGGING_MAX_FILES = "5"
 DEFAULT_LOGGING_FILE_BASENAME = "assets-guardian"
+DEFAULT_LOGGING_PATH = "local:logs"
 
 
 @dataclass
@@ -22,6 +24,8 @@ class LoggingConfig:
         max_size: Maximum size of log files in MB.
         max_files: Maximum number of log files to keep.
         file_basename: Base name of the log files.
+        path: Directory where log files are written. Must be local; remote logging
+            destinations are not supported.
     """
 
     max_size: int
@@ -29,6 +33,7 @@ class LoggingConfig:
     console_level: int
     file_level: int
     file_basename: str = "assets-guardian"
+    path: Location = field(default_factory=lambda: Location(DEFAULT_LOGGING_PATH))
 
     def __post_init__(self) -> None:
         """Validates and processes the logging configuration.
@@ -60,12 +65,12 @@ class LoggingConfig:
         validate_field(self, "max_size", int)
         validate_field(self, "max_files", int)
         validate_field(self, "file_basename", str)
+        validate_field(self, "path", Location)
 
         self.max_size *= 1048576
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "LoggingConfig":
-
         return cls(
             console_level=get_config_value(
                 "console_level",
@@ -100,5 +105,13 @@ class LoggingConfig:
                 data,
                 default=DEFAULT_LOGGING_FILE_BASENAME,
                 env_name="LOGGING_FILE_BASENAME",
+            ),
+            path=Location(
+                get_config_value(
+                    "path",
+                    data,
+                    default=DEFAULT_LOGGING_PATH,
+                    env_name="LOGGING_PATH",
+                )
             ),
         )

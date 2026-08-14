@@ -7,9 +7,11 @@ from click.testing import CliRunner
 
 from assets_guardian.cli.main import cli
 from assets_guardian.core.config.app_config import AppConfig, AppEnv
+from assets_guardian.core.config.author_config import AuthorConfig
 from assets_guardian.core.config.cache_config import CacheConfig
 from assets_guardian.core.config.logging_config import LoggingConfig
 from assets_guardian.core.config.paths_config import PathsConfig
+from assets_guardian.core.domain.models.context import AssetsGuardianMode
 from assets_guardian.core.domain.models.location import Location
 
 
@@ -27,7 +29,7 @@ class TestCLI:
         mock_app_config = AppConfig(
             env=AppEnv.PROD,
             version="1.0.0",
-            author={},
+            author=AuthorConfig(fullname="Test Author", email="author@example.com"),
             logging=LoggingConfig(
                 console_level="INFO",
                 file_level="INFO",
@@ -39,7 +41,7 @@ class TestCLI:
             paths=PathsConfig(
                 excel=Location("local:test.xlsx"),
                 pdf=Location("local:report.pdf"),
-                rules_config=Location("local:rules.yml"),
+                rules=Location("local:rules.yml"),
                 excel_config=Location("local:excel_config.json"),
                 pdf_config=Location("local:pdf_config.json"),
                 employees=Location("local:employees.json"),
@@ -59,10 +61,12 @@ class TestCLI:
         # Mock discover_all
         mocker.patch("assets_guardian.cli.main.discover_all")
 
-        # Mock run_sync_command, run_audit_command and run_check_command to avoid side effects
+        # Mock run_sync_command, run_audit_command, run_check_command and
+        # run_script_command to avoid side effects
         mocker.patch("assets_guardian.cli.main.run_sync_command")
         mocker.patch("assets_guardian.cli.main.run_audit_command")
         mocker.patch("assets_guardian.cli.main.run_check_command")
+        mocker.patch("assets_guardian.cli.main.run_script_command")
 
     def test_help_returns_zero(self) -> None:
         """Verify that running 'assets-guardian --help' successfully prints the help menu and exits with 0."""
@@ -114,6 +118,23 @@ class TestCLI:
         result = runner.invoke(cli, ["check"])
         assert result.exit_code == 0
         mock_run.assert_called_once()
+
+    def test_script_command(self, mocker) -> None:
+        """Verify that the 'script' command executes the script command handler with the script name."""
+        mock_run = mocker.patch("assets_guardian.cli.main.run_script_command")
+        runner = CliRunner()
+        result = runner.invoke(cli, ["script", "my_script"])
+        assert result.exit_code == 0
+        mock_run.assert_called_once()
+        args, _ = mock_run.call_args
+        assert args[0].mode is AssetsGuardianMode.SCRIPT
+        assert args[1] == "my_script"
+
+    def test_script_requires_name(self) -> None:
+        """Verify that the 'script' command fails with a usage error when no script name is given."""
+        runner = CliRunner()
+        result = runner.invoke(cli, ["script"])
+        assert result.exit_code != 0
 
     def test_verbose_flag(self) -> None:
         """Verify that the CLI accepts the '--verbose' global flag successfully."""

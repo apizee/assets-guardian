@@ -129,7 +129,7 @@ Without `make`:
 docker build -t assets-guardian .
 ```
 
-The image is built once. See [Running](#running) for mounting volumes and passing credentials.
+The image is built once. See [Running](#️-running) for mounting volumes and passing credentials.
 
 ### 💻 Dev Container
 
@@ -156,7 +156,7 @@ Without `make`:
 docker build -t assets-guardian .
 ```
 
-The image is built once. See [Running](#running) for mounting volumes and passing credentials.
+The image is built once. See [Running](#️-running) for mounting volumes and passing credentials.
 
 > 💡 **Tip:** Rebuild the image after each change to dependencies or the Dockerfile, source code changes are reflected live via the volume mount.
 
@@ -206,17 +206,23 @@ author:
   fullname: "First name LAST NAME"  # Displayed in report headers
   email: "...@example.com"          # Displayed in report headers
 
+notification_email:                 # Recipients of the audit report by email
+  - "...@example.com"
+
 logging:
   console_level: "INFO"             # Verbosity printed to stdout (DEBUG, INFO, WARNING, ERROR)
   file_level: "DEBUG"               # Verbosity written to the log file
   file-basename: "assets-guardian"  # Log file name prefix
   max-size: 10                      # Max log file size in MB before rotation
   max-files: 3                      # Number of rotated log files to keep
+  path: "local:logs"                # Directory where log files are written (local only)
 
 paths:
   excel: "local:outputs/assets_guardian.xlsx"   # Output Excel report
   pdf:   "local:outputs/audit_report.pdf"       # Output PDF report
   rules: "local:config/rules_config.yml"        # Path to the rules registry
+  excel_config: "local:config/excel_config.json"  # Excel report styling rules
+  pdf_config:   "local:config/pdf_config.json"    # PDF report styling rules
   employees: "local:config/employees.json"      # Path to the HR database
 
 cache:
@@ -255,6 +261,23 @@ author:
 >
 > 💡 **Tip:** Outside of email-sending contexts, this section is optional. If omitted, the author fields in generated reports will be left blank.
 
+##### The `notification_email` section
+
+The list of recipients that receive the PDF audit report by email at the end of an `audit` run. The sender is `author.email`, and delivery goes through Microsoft Graph, so it requires a configured `microsoft365` instance.
+
+```yaml
+notification_email:
+  - "security-team@company.com"
+  - "ciso@company.com"
+```
+
+| Value | Behaviour |
+| :--- | :--- |
+| One or more addresses | The report is emailed to every address once the audit completes |
+| Empty or omitted | No email is sent. `assets-guardian check` reports this as a **warning**, not an error |
+
+> ⚠️ **Warning:** Every entry must be a syntactically valid address. A malformed address makes the `check` command fail, and `sync` / `audit` refuse to start.
+
 ##### The `logging` section
 
 Controls what gets written to the console and to the rotating log file.
@@ -266,6 +289,7 @@ logging:
   file-basename: "assets-guardian"
   max-size: 10     # MB
   max-files: 3
+  path: "local:logs"
 ```
 
 | Field | Default | Description |
@@ -275,33 +299,84 @@ logging:
 | `file-basename` | `assets-guardian` | Prefix for the log file name (e.g. `assets-guardian.log`) |
 | `max-size` | `10` | Maximum log file size in MB before rotation |
 | `max-files` | `5` | Number of rotated log files to keep |
+| `path` | `local:logs` | Directory where log files are written. Accepts a relative (`local:logs`) or absolute (`local:/var/log/assets-guardian`) path |
 
 Valid levels (from least to most verbose): `CRITICAL` → `ERROR` → `WARNING` → `INFO` → `DEBUG`.
 
+> ⚠️ **Warning:** `path` must be **local**. A rotating file handler cannot write to a remote location, so a `remote:` value is reported as an error by `assets-guardian check`, and logging silently falls back to `local:logs` with a warning.
+>
+> 💡 **Tip:** The directory is created at startup if it does not exist. Make sure the account running Assets Guardian can write there, an absolute path such as `/var/log/assets-guardian` usually needs to be created and owned beforehand.
+>
+> ⚠️ **Warning:** In Docker, keep `path` consistent with the mounted volume. The run commands in [Running](#️-running) mount `logs/` to `/app/logs`, which matches the `local:logs` default. Point `path` somewhere else without mounting it and the logs are written **inside the container**: they are lost when it exits, with no error reported.
+>
 > 💡 **Tip:** The `-v` / `--verbose` CLI flag forces `console_level` to `DEBUG`, and `-q` / `--quiet` forces it to `CRITICAL`, regardless of what is set here. The log file level is never affected by CLI flags, the file always follows the key: `file_level` in `config.yml` file.
 
 ##### The `paths` section
 
-Locations of every file that Assets Guardian reads or writes. All values must use the `local:` prefix, which resolves relative to the working directory.
+Locations of every file that Assets Guardian reads or writes. Every value is **prefixed**: `local:` resolves relative to the working directory (or accepts an absolute path), `remote:` points to a SharePoint document library.
 
 ```yaml
 paths:
   excel: "local:outputs/assets_guardian.xlsx"
   pdf:   "local:outputs/audit_report.pdf"
   rules: "local:config/rules_config.yml"
+  excel_config: "local:config/excel_config.json"
+  pdf_config:   "local:config/pdf_config.json"
+  excel_config: "local:config/excel_config.json"
+  pdf_config:   "local:config/pdf_config.json"
   employees: "local:config/employees.json"
 ```
 
-| Field | Default | Description |
-| :--- | :--- | :--- |
-| `excel` | `local:outputs/assets_guardian.xlsx` | Output Excel report |
-| `pdf` | `local:outputs/audit_report.pdf` | Output PDF report |
-| `rules` | `local:config/rules_config.yml` | Input IAM rules registry |
-| `employees` | `local:config/employees.json` | Input HR database |
+| Field | Default | `remote:` | Description |
+| :--- | :--- | :---: | :--- |
+| `excel` | `local:outputs/assets_guardian.xlsx` | ✅ | Output Excel report, also read back as the audit baseline and access matrix |
+| `pdf` | `local:outputs/audit_report.pdf` | ✅ | Output PDF report |
+| `rules` | `local:config/rules_config.yml` | ✅ | Input IAM rules registry |
+| `excel_config` | `local:config/excel_config.json` | ❌ | Excel report styling rules |
+| `pdf_config` | `local:config/pdf_config.json` | ❌ | PDF report styling rules |
+| `employees` | `local:config/employees.json` | ✅ | Input HR database |
 
-> 💡 **Tip:** Each path can also be set via a dedicated environment variable (`PATH_EXCEL`, `PATH_PDF`, `PATH_RULES`, `PATH_EMPLOYEES`), which takes priority over the config file. This is useful to redirect outputs in a CI pipeline without editing the file.
+**Using a `remote:` path.** The format is `remote:<instance>:<path in the document library>`, where `<instance>` is the label of a configured `microsoft365` instance:
+
+```yaml
+paths:
+  excel: "remote:main:Security/IAM/assets_guardian.xlsx"
+```
+
+Files are downloaded to the local cache before being read, and re-downloaded whenever the SharePoint version changes. Generated reports are uploaded once produced.
+
+**Date-stamped filenames.** Write the literal word `DATE` in the filename of `excel` or `pdf` and it is replaced by the current date, formatted `YYYY_MM_DD`:
+
+```yaml
+paths:
+  excel: "local:outputs/assets_guardian_DATE.xlsx"   # -> assets_guardian_2026_07_30.xlsx
+  pdf:   "local:outputs/audit_report_DATE.pdf"       # -> audit_report_2026_07_30.pdf
+```
+
+Without the `DATE` keyword the filename is used as-is, and each run overwrites the previous file. This is opt-in, and only the filename is substituted, never the directories above it.
+
+> ⚠️ **Warning:** `audit` does not only *write* the dated file, it also *reads back* the Excel workbook to load the audit baseline and the access matrices, and it recomputes today's name to find it. A `sync` run on one day followed by an `audit` on the next therefore looks for a file that does not exist: the audit falls back to an **empty baseline and an empty matrix**, logging only a warning. Every access then appears unauthorized and comparison rules detect nothing. With `DATE` in `paths.excel`, run `sync` and `audit` on the same day.
 >
-> 🔭 **Coming soon:** A `remote:` prefix is planned to support remote locations such as SharePoint. This will allow Assets Guardian to read its configuration and write its reports directly to a SharePoint document library, without any local file system dependency.
+> 💡 **Tip:** The date is computed in **UTC**, not local time. Late in the evening in a UTC+n timezone the generated name may already have rolled over to the next day.
+>
+> ⚠️ **Warning:** A `remote:` path requires a working `microsoft365` section in `config.yml`, with the `Sites.ReadWrite.All` Graph permission granted. Without it, `assets-guardian check` fails with *"Output path is remote but no microsoft365 integration is configured"*.
+>
+> ⚠️ **Warning:** `excel_config` and `pdf_config` are restricted to `local:`. They are read before any remote client exists, so `CheckEngine` rejects a remote location for these two.
+>
+> 💡 **Tip:** Each path can also be set via a dedicated environment variable (`PATH_EXCEL`, `PATH_PDF`, `PATH_RULES`, `PATH_EXCEL_CONFIG`, `PATH_PDF_CONFIG`, `PATH_EMPLOYEES`), which takes priority over the config file. This is useful to redirect outputs in a CI pipeline without editing the file.
+
+##### Excel workbook integrity
+
+Every `sync` protects the generated workbook in two independent ways:
+
+- **Read-only sheets.** Every auto-generated sheet (anything that is not a "... Matrix" sheet) is locked within Excel's UI, discouraging accidental edits. "... Matrix" sheets are deliberately left unlocked, since filling them in by hand for future audits is their intended purpose.
+- **Tamper detection.** A SHA-256 checksum of each sheet's content (auto-generated **and** Matrix sheets alike) is stored in the workbook's custom properties on every write. The next `sync` recomputes it from the file it finds and logs a warning naming every sheet that changed since the last write, whether or not it was locked - along with who last saved the file and when, when that information is available.
+
+> 💡 **Tip:** The sheet lock is a UI-level deterrent (`openpyxl` sheet protection), not encryption. It is never verified or unlocked by the tool itself, so the password behind it does not need to be known by anyone - it exists purely to make casual edits in Excel harder. If you need to remove it (e.g. to fix an auto-generated sheet by hand), the password is `placeholder` (Excel: *Review > Unprotect Sheet*), matching the `_PROTECTION_PASSWORD` constant in `core/reporting/excel/writer.py`.
+>
+> ⚠️ **Warning:** The tamper-detection warning never blocks `sync`, it only logs. Editing a "... Matrix" sheet by hand - the expected workflow - will trigger it on the very next `sync`, just like an edit to an auto-generated sheet would; there is no way to tell the two apart from the checksum alone.
+>
+> 💡 **Tip:** The warning also names the file's last author and save date, read from its standard `lastModifiedBy`/`modified` properties. These are filled in by whatever application last saved the file (e.g. Excel's *File > Options > General > User name*) - self-reported, not cryptographically verified, and left blank or generic by some non-Microsoft editors (e.g. OnlyOffice on Linux). Treat it as a helpful hint, not proof.
 
 ##### Plugin sections
 
@@ -326,12 +401,13 @@ dolibarr:
 
 microsoft365:
   main: # Arbitrary environment label
-    url: "https://graph.microsoft.com/.default"
     credentials:
       tenant_id: "${M365_TENANT_ID}"
       application_id: "${M365_APPLICATION_ID}"
       client_secret: "${M365_CLIENT_SECRET}"
 ```
+
+Most plugins reach their source over plain HTTP and therefore need a `url`. Microsoft 365 is the exception: it goes through the official Graph SDK, which resolves the endpoint itself, so the section takes **no `url` key** and only carries credentials.
 
 > ⚠️ **Warning:** A plugin section must be present (and not commented out) for the corresponding plugin to run. Plugins with no section are silently skipped.
 >
@@ -433,18 +509,45 @@ The IAM policy registry. It declares which rules are active for each plugin and 
 
 Rules are grouped using a YAML anchor (`define: &default_rules`) so they can be inherited by any plugin with `<<: *default_rules`. A rule is only evaluated if it appears under the plugin's section, even if the rule is implemented in the plugin's code, it will be silently ignored at runtime if it has no entry here.
 
-Each rule entry requires a `description` and a `severity`. All additional fields (thresholds, IPs, flags, etc.) are passed directly to the rule as free-form parameters, what is accepted depends entirely on **the rule's own implementation**.
+Each rule entry takes a `description` and a `severity`. All additional fields (thresholds, IPs, flags, etc.) are passed directly to the rule as free-form parameters, what is accepted depends entirely on **the rule's own implementation**.
+
+`severity` drives how the finding is ranked and coloured in the PDF report. It is read from this file by every rule: if the key is missing or left empty, the rule logs a warning and falls back to the default listed below, the audit still runs.
 
 **Built-in default rules:**
 
-| Rule ID | Description | Severity | Extra configurable fields |
+| Rule ID | Description | Default severity | Extra configurable fields |
 | :--- | :--- | :---: | :--- |
 | `DEFAULT-001` | Account without MFA enabled | `DANGER` | - |
-| `DEFAULT-002` | Inactivity threshold exceeded | `HIGH` (dynamic) | `inactivity_threshold_days_warning`, `inactivity_threshold_days_danger`, `inactivity_threshold_days_critical` |
+| `DEFAULT-002` | Inactivity threshold exceeded | *per tier* | `inactivity_threshold_days` (list of tiers) |
 | `DEFAULT-003` | Account with excessive permissions | `DANGER` | - |
 | `DEFAULT-004` | Connection from an unusual location | `WARNING` | `company_network_ip` |
 
-**Severity levels** (from lowest to highest): `INFO` → `WARNING` → `HIGH` → `DANGER` → `CRITICAL`
+**Built-in identity naming-convention rules:** `CTRL_HUMAN_*`, `CTRL_SERVICE_*` and `CTRL_GENERIC_*` check identity attributes (name, username, email, ...) against the company's identity-creation naming convention, one rule per attribute and identity type (human, non-human/service, generic).
+
+| Rule ID | Description | Default severity | Extra configurable fields |
+| :--- | :--- | :---: | :--- |
+| `CTRL_HUMAN_LAST_NAME` | Last name entirely in uppercase | `WARNING` | - |
+| `CTRL_HUMAN_FIRST_NAME` | First name properly capitalized per component | `WARNING` | - |
+| `CTRL_HUMAN_FULL_NAME` | Full name is "first last" (+ `' (EXT)'` if third-party) | `WARNING` | - |
+| `CTRL_HUMAN_USERNAME` | Username format (+ `-ext` suffix if third-party) | `DANGER` | - |
+| `CTRL_HUMAN_EMAIL` | Email format (+ `.ext` suffix if third-party) | `DANGER` | `email_domain` |
+| `CTRL_HUMAN_CREATION` | Creation date recorded | `DANGER` | - |
+| `CTRL_HUMAN_JOB` | Job title set | `WARNING` | - |
+| `CTRL_SERVICE_FULL_NAME` | Full name suffixed `' (EXT)'` for third-party services | `WARNING` | - |
+| `CTRL_SERVICE_USERNAME` | Username format (lowercase, hyphen-separated) | `DANGER` | - |
+| `CTRL_SERVICE_CREATION` | Creation date recorded | `DANGER` | - |
+| `CTRL_SERVICE_DESCRIPTION` | Description set | `WARNING` | - |
+| `CTRL_GENERIC_FULL_NAME` | Never marked as third-party | `DANGER` | - |
+| `CTRL_GENERIC_USERNAME` | Username format (lowercase, hyphen-separated) | `DANGER` | - |
+| `CTRL_GENERIC_CREATOR` | Creator recorded | `WARNING` | - |
+| `CTRL_GENERIC_CREATION` | Creation date recorded | `DANGER` | - |
+| `CTRL_GENERIC_DESCRIPTION` | Description set | `DANGER` | - |
+
+> ⚠️ **Coverage depends on what each source actually provides.** A rule only fires when the source populates the field it checks — it never guesses. Notably: GitLab only exposes a single merged `name` field (no separate first/last name), so every `CTRL_HUMAN_*` rule based on them silently skips GitLab identities. Third-party (`-ext`/`.ext`/`' (EXT)'`) checks rely on `is_external`, which only GitLab populates, from its own "external user" access flag rather than a genuine "third-party company" indicator. `CTRL_GENERIC_*` rules currently never fire on real data: no plugin assigns the `generic` identity type yet.
+
+**Severity levels** (from lowest to highest): `INFO` → `WARNING` → `DANGER` → `CRITICAL`
+
+**`DEFAULT-002` is tiered.** Instead of a single `severity`, it takes a list of thresholds, each pairing a number of inactive days with the severity to raise. The rule keeps the **highest tier reached**: with the defaults below, an account inactive for 200 days is reported as `DANGER`, and one inactive for 400 days as `CRITICAL`. Tiers are sorted automatically, so declaration order does not matter, and a tier missing its `days` is skipped with a warning.
 
 **Example:**
 
@@ -455,10 +558,13 @@ define: &default_rules
     severity: "DANGER"
   DEFAULT-002:
     description: "Inactivity threshold exceeded for an account."
-    severity: "HIGH"
-    inactivity_threshold_days_warning: 90
-    inactivity_threshold_days_danger: 180
-    inactivity_threshold_days_critical: 365
+    inactivity_threshold_days:
+      - severity: "WARNING"
+        days: 90
+      - severity: "DANGER"
+        days: 180
+      - severity: "CRITICAL"
+        days: 365
   DEFAULT-003:
     description: "Account with excessive permissions."
     severity: "DANGER"
@@ -469,18 +575,31 @@ define: &default_rules
 
 gitlab:
   <<: *default_rules          # Inherit all default rules
-  COMPLIANCE-001:              # Plugin-specific rule
-    description: "Connection from an unusual location."
-    severity: "HIGH"
+  COMPLIANCE-001:             # Plugin-specific rule
+    description: "Gitlab mailbox not matching any employee in employees.json."
+    severity: "WARNING"
 
 dolibarr:
   <<: *default_rules
+  COMPLIANCE-001:             # Same ID as GitLab's, but a separate implementation
+    description: "Dolibarr mailbox not listed in employees.json."
+    severity: "WARNING"
+  DOLIBARR-005:
+    description: "Lists disabled user accounts in Dolibarr."
+    severity: "INFO"
 
 microsoft365:
   <<: *default_rules
+  COMPLIANCE-002:
+    description: "Microsoft365 mailbox not listed in employees.json."
+    severity: "WARNING"
 ```
 
 > ⚠️ **Warning:** Removing a rule from a plugin section disables it entirely for that plugin, even if it is defined in `&default_rules`.
+
+Rule IDs are namespaced per source, so `gitlab`'s `COMPLIANCE-001` and `dolibarr`'s `COMPLIANCE-001` are two independent rules that happen to share a number. Always read a rule ID together with the plugin section it sits in.
+
+> 💡 **Tip:** The snippet above is trimmed for readability, each plugin also ships matrix (`MATRIX-XXX`) and comparison (`COMPARE-XXX`) rules. [`config/template.rules_config.yml`](https://github.com/apizee/assets-guardian/blob/main/config/template.rules_config.yml) lists every rule available for every shipped plugin and is the file to copy from.
 
 #### 📄 The `employees.json` file
 
@@ -504,8 +623,8 @@ It is a JSON array of employee objects:
 | :--- | :--- |
 | `first_name` | Employee's first name |
 | `last_name` | Employee's last name (usually uppercase by convention) |
-| `email` | List of professional email addresses associated with this employee, used as primary identifiers for account matching |
-| `username` | List of login handles used across audited platforms, allows matching a single employee to multiple accounts |
+| `email` | Professional email address(es), single value or list. **This is the identifier every rule matches on**: shadow-account detection compares collected accounts against these addresses, and matrix rules resolve an employee's profiles through them. Listing several addresses is how one employee holding multiple accounts is recognised |
+| `username` | Login handle(s) used across audited platforms, single value or list. Reported in the Excel employees sheet, and used to resolve profiles **only as a fallback**, when the entry has no `email` at all |
 | `profiles` | Comma-separated list of job profiles / departments, used to detect privilege mismatches with matrix |
 
 > ⚠️ **Warning:** This file must be maintained manually. Any account found on an audited platform that cannot be matched to an entry here will be flagged as a potential shadow account.
@@ -697,6 +816,10 @@ Assets Guardian exposes three primary commands:
 - `sync`: Connects to all configured platform instances, retrieves their data, and **creates**/**updates** the corresponding Excel (`.xlsx`) database accordingly.
 - `audit`: Evaluates the configured security policies, executes comparison checks over time across all instances, and **generates** the detailed PDF audit report.
 
+A fourth, advanced command is aimed at power users:
+
+- `script <name>`: **Executes** a custom Python script dropped at the root of the `scripts/` directory, with full access to the application context (see the *Power-user scripts* section below).
+
 These flags can be applied globally to any command. Note that they must be placed **before** the subcommand (e.g., `uv run assets-guardian --verbose <sync>`).
 
 | Option / Flag | Description | Default / Behavior |
@@ -709,9 +832,36 @@ These flags can be applied globally to any command. Note that they must be place
 | `--help` | Displays the help menu with all available options and exits. | - |
 | `--version` | Displays the version of the tool and exits. | - |
 
+### 🧪 Power-user scripts
+
+> ⚠️ **Warning:** This is an advanced, deliberately unpolished feature aimed at tinkerers: scripts are arbitrary Python executed without guardrails, unlike the rest of Assets Guardian.
+
+The `script` command runs a custom Python file dropped at the root of the `scripts/` directory (resolved from the current working directory, like `logs/`):
+
+```bash
+assets-guardian script my_automation   # runs scripts/my_automation.py (the .py suffix is optional)
+```
+
+Each script must expose a `run(ctx)` function. The received `Context` gives full access to the loaded configuration (`ctx.app_config`), the initialized logging system, and the plugin registries, client providers and collectors are already discovered and registered when the script runs, so it can talk to every configured integration:
+
+```python
+import logging
+
+from assets_guardian.core.domain.models.context import Context
+
+logger = logging.getLogger(__name__)
+
+
+def run(ctx: Context) -> None:
+    """Entry point called by 'assets-guardian script <name>'."""
+    logger.info("Running in '%s' environment.", ctx.app_config.env)
+```
+
+See `scripts/example.py` in the repository for a complete, runnable example that instantiates a client per configured integration instance and checks its connectivity.
+
 ### ▶️ Running by mode
 
-The exact invocation pattern depends on which mode you installed. Replace `<command>` with `check`, `sync`, or `audit`. Global options (`--verbose`, `--dry-run`, etc.) always go **before** the subcommand.
+The exact invocation pattern depends on which mode you installed. Replace `<command>` with `check`, `sync`, `audit`, or `script <name>`. Global options (`--verbose`, `--dry-run`, etc.) always go **before** the subcommand.
 
 #### 🐍 Standalone (with `assets-guardian`)
 

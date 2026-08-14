@@ -31,6 +31,10 @@ outputs/*
 logs/*
 !logs/.gitkeep
 
+# User scripts (local tinkering, never committed except the example)
+scripts/*
+!scripts/example.py
+
 # Secrets
 .env*
 !.env.template

@@ -7,8 +7,10 @@ from unittest import mock
 import pytest
 
 from assets_guardian.core.config.logging_config import LoggingConfig
+from assets_guardian.core.domain.models.location import Location
 from assets_guardian.core.logging.logger import (
     ColorFormatter,
+    _ExcludeLoggersFilter,
     get_plugin_logger,
     init_logging,
 )
@@ -98,6 +100,43 @@ def test_init_logging(mock_logging_config: LoggingConfig, tmp_path: Path) -> Non
         mock_asyncio_logger.setLevel.assert_called_with(logging.WARNING)
 
 
+def test_init_logging_remote_path_falls_back_to_default(caplog: pytest.LogCaptureFixture) -> None:
+    """Verify that init_logging warns and falls back to the local default when path is remote."""
+    remote_config = LoggingConfig(
+        console_level="INFO",
+        file_level="DEBUG",
+        max_size=1,
+        max_files=5,
+        file_basename="test-app",
+        path=Location("remote:test:some/remote/path"),
+    )
+
+    with (
+        caplog.at_level(logging.WARNING, logger="assets_guardian.core.logging.logger"),
+        mock.patch("assets_guardian.core.logging.logger.Path") as mock_path_cls,
+        mock.patch("assets_guardian.core.logging.logger.RotatingFileHandler"),
+        mock.patch("logging.getLogger") as mock_get_logger,
+    ):
+        mock_log_dir = mock.MagicMock()
+        mock_path_cls.return_value = mock_log_dir
+        mock_log_dir.__truediv__.return_value = mock.MagicMock()
+
+        mock_root_logger = mock.MagicMock()
+        mock_root_logger.hasHandlers.return_value = False
+
+        def get_logger_side_effect(name=None):
+            if name is None:
+                return mock_root_logger
+            return mock.Mock()
+
+        mock_get_logger.side_effect = get_logger_side_effect
+
+        init_logging(remote_config)
+
+        mock_path_cls.assert_called_with("logs")
+        assert "falling back to the local default" in caplog.text
+
+
 def test_color_formatter():
     """Verify that ColorFormatter correctly inserts ANSI color codes into log records."""
     formatter = ColorFormatter("%(levelname)s - %(message)s")
@@ -139,3 +178,30 @@ def test_color_formatter_no_color():
     formatted = formatter.format(record)
     assert "DUMMY" in formatted
     assert "\033" not in formatted
+
+
+def test_exclude_loggers_filter() -> None:
+    """Verify that _ExcludeLoggersFilter excludes only records from the configured prefixes."""
+    log_filter = _ExcludeLoggersFilter(("httpx", "assets_guardian.plugins.microsoft365"))
+
+    excluded_record = logging.LogRecord(
+        name="httpx",
+        level=logging.INFO,
+        pathname="test.py",
+        lineno=1,
+        msg="HTTP Request: GET https://graph.microsoft.com/v1.0/users",
+        args=(),
+        exc_info=None,
+    )
+    included_record = logging.LogRecord(
+        name="assets_guardian.plugins.dolibarr.collector",
+        level=logging.INFO,
+        pathname="test.py",
+        lineno=1,
+        msg="Collected 1 Dolibarr identities.",
+        args=(),
+        exc_info=None,
+    )
+
+    assert log_filter.filter(excluded_record) is False
+    assert log_filter.filter(included_record) is True

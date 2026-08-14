@@ -187,7 +187,7 @@ class DefaultSheetBuilder(ISheetBuilder):
             worksheet: The Excel worksheet currently being written.
             rules: Configured rules and columns.
         """
-        widths = [20, 20, 30, 20, 40]
+        widths = [20, 20, 40, 20, 70]
         worksheet.set_column_widths(widths)
 
         headers = [
@@ -206,8 +206,21 @@ class DefaultSheetBuilder(ISheetBuilder):
             row = [
                 emp.get("first_name", ""),
                 emp.get("last_name", ""),
-                emp.get("email", ""),
-                emp.get("username", ""),
+                self.__join_field(emp.get("email", "")),
+                self.__join_field(emp.get("username", "")),
                 emp.get("profiles", ""),
             ]
             worksheet.append_row(row)
+
+    def __join_field(self, value: Any) -> str:
+        """Normalizes a field that may hold a single value or a list of values.
+
+        Args:
+            value: The raw field value, either a string or a list of strings.
+
+        Returns:
+            str: The values joined with ", " if value is a list, otherwise value as a string.
+        """
+        if isinstance(value, list):
+            return ", ".join(str(x) for x in value)
+        return str(value)

@@ -1,0 +1,353 @@
+{
+  "Microsoft Users": {
+    "data_source": "identities",
+    "columns": [
+      {
+        "column_name": "User ID",
+        "field": "external_id",
+        "is_primary_key": true,
+        "width": 50
+      },
+      {
+        "column_name": "Account Type",
+        "is_preserved": true,
+        "width": 15
+      },
+      {
+        "column_name": "Status",
+        "field": "state",
+        "width": 12,
+        "mapping": {
+          "Active": "active",
+          "Inactive": "inactive",
+          "Blocked": "blocked"
+        },
+        "rules": [
+          {
+            "rule_type": "list_validation",
+            "validate": "list",
+            "source": [
+              "Active",
+              "Inactive",
+              "Blocked"
+            ]
+          },
+          {
+            "rule_type": "conditional_format",
+            "criteria": "==",
+            "value": "Blocked",
+            "format": "red"
+          },
+          {
+            "rule_type": "conditional_format",
+            "criteria": "==",
+            "value": "Inactive",
+            "format": "yellow"
+          }
+        ]
+      },
+      {
+        "column_name": "Display Name",
+        "field": "name",
+        "width": 25
+      },
+      {
+        "column_name": "Email",
+        "field": "email",
+        "width": 40
+      },
+      {
+        "column_name": "User Type",
+        "field": "userType",
+        "width": 15
+      },
+      {
+        "column_name": "Company Name",
+        "field": "company",
+        "width": 25
+      },
+      {
+        "column_name": "Job",
+        "field": "description",
+        "width": 25
+      },
+      {
+        "column_name": "2FA",
+        "field": "mfa_enabled",
+        "width": 12,
+        "mapping": {
+          "Enabled": true,
+          "Disabled": false
+        },
+        "rules": [
+          {
+            "rule_type": "list_validation",
+            "validate": "list",
+            "source": [
+              "Enabled",
+              "Disabled"
+            ]
+          },
+          {
+            "rule_type": "conditional_format",
+            "criteria": "==",
+            "value": "Disabled",
+            "format": "red"
+          }
+        ]
+      },
+      {
+        "column_name": "Last Sign-In (UTC)",
+        "field": "last_sign_in_at",
+        "width": 22
+      },
+      {
+        "column_name": "Creation Date (UTC)",
+        "field": "created_at",
+        "width": 22
+      },
+      {
+        "column_name": "Last Password Change (UTC)",
+        "field": "lastPasswordChangeDateTime",
+        "width": 26
+      },
+      {
+        "column_name": "Comments",
+        "is_preserved": true,
+        "width": 50
+      }
+    ]
+  },
+  "Microsoft Groups": {
+    "data_source": "accesses",
+    "filter_by_asset_type": "group",
+    "row_height": "auto",
+    "columns": [
+      {
+        "column_name": "Group ID",
+        "field": "asset_external_id",
+        "is_primary_key": true,
+        "width": 50
+      },
+      {
+        "column_name": "Group Name",
+        "field": "asset_name",
+        "width": 35
+      },
+      {
+        "column_name": "Description",
+        "field": "asset_description",
+        "width": 60
+      },
+      {
+        "column_name": "Visibility",
+        "field": "asset_visibility",
+        "width": 15
+      },
+      {
+        "column_name": "Group Type",
+        "field": "asset_group_type",
+        "width": 20
+      },
+      {
+        "column_name": "Creation Date (UTC)",
+        "field": "asset_created_at",
+        "width": 22
+      },
+      {
+        "column_name": "User ID",
+        "field": "user_external_id",
+        "is_primary_key": true,
+        "width": 50
+      },
+      {
+        "column_name": "Display Name",
+        "field": "user_name",
+        "width": 30
+      },
+      {
+        "column_name": "Comments",
+        "is_preserved": true,
+        "width": 50
+      }
+    ]
+  },
+  "Microsoft Roles": {
+    "data_source": "accesses",
+    "filter_by_asset_type": "role",
+    "row_height": "auto",
+    "columns": [
+      {
+        "column_name": "User ID",
+        "field": "user_id",
+        "is_primary_key": true,
+        "width": 50
+      },
+      {
+        "column_name": "User Display Name",
+        "field": "user_name",
+        "width": 35
+      },
+      {
+        "column_name": "Email",
+        "field": "user_email",
+        "width": 35
+      },
+      {
+        "column_name": "Role Display Name",
+        "field": "name",
+        "is_primary_key": true,
+        "width": 35
+      },
+      {
+        "column_name": "Comments",
+        "is_preserved": true,
+        "width": 50
+      }
+    ]
+  },
+  "Microsoft Applications": {
+    "data_source": "assets",
+    "filter_by_asset_type": "application",
+    "row_height": "auto",
+    "columns": [
+      {
+        "column_name": "ID",
+        "field": "external_id",
+        "is_primary_key": true,
+        "width": 50
+      },
+      {
+        "column_name": "Application ID",
+        "field": "appId",
+        "width": 38
+      },
+      {
+        "column_name": "Display Name",
+        "field": "name",
+        "width": 35
+      },
+      {
+        "column_name": "Description",
+        "field": "description",
+        "width": 40
+      },
+      {
+        "column_name": "Status",
+        "field": "state",
+        "width": 15,
+        "mapping": {
+          "Active": "active",
+          "Inactive": "inactive"
+        },
+        "rules": [
+          {
+            "rule_type": "conditional_format",
+            "criteria": "==",
+            "value": "Inactive",
+            "format": "red"
+          }
+        ]
+      },
+      {
+        "column_name": "Creation Date (UTC)",
+        "field": "created_at",
+        "width": 22
+      },
+      {
+        "column_name": "Comments",
+        "is_preserved": true,
+        "width": 50
+      }
+    ]
+  },
+  "Microsoft Licenses Membership": {
+    "data_source": "accesses",
+    "filter_by_asset_type": "license",
+    "row_height": "auto",
+    "columns": [
+      {
+        "column_name": "User ID",
+        "field": "user_id",
+        "is_primary_key": true,
+        "width": 50
+      },
+      {
+        "column_name": "User Display Name",
+        "field": "user_name",
+        "width": 35
+      },
+      {
+        "column_name": "Email",
+        "field": "user_email",
+        "width": 35
+      },
+      {
+        "column_name": "License Name",
+        "field": "name",
+        "is_primary_key": true,
+        "width": 40
+      },
+      {
+        "column_name": "Comments",
+        "is_preserved": true,
+        "width": 50
+      }
+    ]
+  },
+  "Microsoft Subscribed Licenses": {
+    "data_source": "assets",
+    "filter_by_asset_type": "license",
+    "row_height": "auto",
+    "columns": [
+      {
+        "column_name": "ID",
+        "field": "external_id",
+        "is_primary_key": true,
+        "width": 50
+      },
+      {
+        "column_name": "Display Name",
+        "field": "name",
+        "width": 35
+      },
+      {
+        "column_name": "Status",
+        "field": "state",
+        "width": 15,
+        "mapping": {
+          "Active": "active",
+          "Inactive": "inactive"
+        },
+        "rules": [
+          {
+            "rule_type": "conditional_format",
+            "criteria": "==",
+            "value": "Inactive",
+            "format": "red"
+          }
+        ]
+      },
+      {
+        "column_name": "Capability Status",
+        "field": "capabilityStatus",
+        "width": 18
+      },
+      {
+        "column_name": "Consumed Units",
+        "field": "consumedUnits",
+        "width": 15
+      },
+      {
+        "column_name": "Enabled Units",
+        "field": "enabledUnits",
+        "width": 15
+      },
+      {
+        "column_name": "Comments",
+        "is_preserved": true,
+        "width": 50
+      }
+    ]
+  }
+}
