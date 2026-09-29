@@ -24,7 +24,7 @@ def _local_path_for(ctx: Context, location: Location) -> str:
 
     Returns:
         str: The local path to write to (the configured path if local, a cache path
-            otherwise), with any 'DATE' placeholder replaced by today's date.
+            otherwise), with any date placeholders resolved to current values.
     """
     filename = Path(add_date_to_filename(location.clean_path)).name
     if location.is_local:

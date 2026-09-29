@@ -345,15 +345,26 @@ paths:
 
 Files are downloaded to the local cache before being read, and re-downloaded whenever the SharePoint version changes. Generated reports are uploaded once produced.
 
-**Date-stamped filenames.** Write the literal word `DATE` in the filename of `excel` or `pdf` and it is replaced by the current date, formatted `YYYY_MM_DD`:
+**Date-stamped filenames.** You can include dynamic date placeholders or the literal keyword `DATE` in the filename of `excel` or `pdf`:
+
+- **Dynamic placeholders** (enclosed in curly braces, case-insensitive):
+  - `{year}` : 4-digit year (e.g. `2026`).
+  - `{month}` : 2-digit month (e.g. `09`).
+  - `{day}` : 2-digit day of the month (e.g. `29`).
+  - `{hour}`, `{minute}`, `{second}` : 2-digit time components.
+  - `{time}` : time formatted as `HH_MM_SS`.
+  - `{date}` : full date formatted as `YYYY_MM_DD` (matches `date_format` parameter).
+- **Literal `DATE`** (legacy keyword): replaced by the current UTC date formatted `YYYY_MM_DD`.
 
 ```yaml
 paths:
-  excel: "local:outputs/assets_guardian_DATE.xlsx"   # -> assets_guardian_2026_07_30.xlsx
-  pdf:   "local:outputs/audit_report_DATE.pdf"       # -> audit_report_2026_07_30.pdf
+  excel: "local:outputs/assets_guardian_{year}_{month}.xlsx" # -> assets_guardian_2026_09.xlsx
+  pdf:   "local:outputs/audit_report_{year}_{month}.pdf"     # -> audit_report_2026_09.pdf
+  # or daily / legacy:
+  # excel: "local:outputs/assets_guardian_DATE.xlsx"         # -> assets_guardian_2026_09_29.xlsx
 ```
 
-Without the `DATE` keyword the filename is used as-is, and each run overwrites the previous file. This is opt-in, and only the filename is substituted, never the directories above it.
+Without any date placeholder the filename is used as-is, and each run overwrites the previous file. This is opt-in, and only the filename is substituted, never the directories above it.
 
 > ⚠️ **Warning:** `audit` does not only *write* the dated file, it also *reads back* the Excel workbook to load the audit baseline and the access matrices, and it recomputes today's name to find it. A `sync` run on one day followed by an `audit` on the next therefore looks for a file that does not exist: the audit falls back to an **empty baseline and an empty matrix**, logging only a warning. Every access then appears unauthorized and comparison rules detect nothing. With `DATE` in `paths.excel`, run `sync` and `audit` on the same day.
 >

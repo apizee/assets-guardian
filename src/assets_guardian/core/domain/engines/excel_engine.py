@@ -21,8 +21,8 @@ class ExcelEngine:
             data: Data collection results.
             ctx: The application context.
             output_path: Destination path for the Excel file. If not provided, it is
-                computed from the configured path, replacing the 'DATE' placeholder
-                with today's date if present.
+                computed from the configured path, resolving any dynamic date placeholders
+                (e.g. 'DATE', '{year}', '{month}') if present.
         """
         builders = SheetBuilderRegistry.get_builders()
 

@@ -19,7 +19,8 @@ class PdfEngine:
             data: Audit results (dictionary or iterable of Report).
             ctx: The application context.
             output_path: Destination path for the PDF. If not provided, it is
-                computed from the configured path with today's date inserted.
+                computed from the configured path, resolving any dynamic date placeholders
+                (e.g. 'DATE', '{year}', '{month}') if present.
         """
         builders = PDFBuilderRegistry.get_builders()
 
