@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 def resolve_location_path(ctx: Context, location: Location, cache_filename: str) -> str | None:
     """Resolves a Location to a local file path, downloading it from SharePoint if remote.
 
-    Any 'DATE' placeholder in the file name is replaced with today's date, if present
+    Any date placeholders in the file name are resolved to current values, if present
     (no-op otherwise).
 
     Args:

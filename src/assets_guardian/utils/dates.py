@@ -146,20 +146,60 @@ def format_datetime(value: datetime | str | None) -> str:
 
 
 def add_date_to_filename(path: str | Path, date_format: str = "%Y_%m_%d") -> str:
-    """Replaces the 'DATE' placeholder in the filename with today's date, if present.
+    """Replaces date placeholders in the filename with current UTC date and time values.
+
+    Supported placeholders in the filename (case-insensitive for curly-brace tokens):
+        - 'DATE' (legacy): replaced by today's date formatted with `date_format` ('%Y_%m_%d')
+        - '{date}': replaced by today's date formatted with `date_format`.
+        - '{year}': 4-digit year (e.g. '2026').
+        - '{month}': 2-digit month (01-12).
+        - '{day}': 2-digit day of month (01-31).
+        - '{hour}': 2-digit hour in 24h format (00-23).
+        - '{minute}': 2-digit minute (00-59).
+        - '{second}': 2-digit second (00-59).
+        - '{time}': time formatted as '%H_%M_%S'.
+
+    All curly-brace placeholders are case-insensitive (e.g. '{YEAR}_{MONTH}' or '{year}_{month}').
+    Non-recognized placeholders (e.g. '{unknown}') and parent directories are left unchanged.
 
     Args:
-        path: Original file path (e.g. 'outputs/audit_report_DATE.pdf').
-        date_format: strftime format used for the date.
+        path: Original file path (e.g. 'outputs/audit_report_DATE.pdf' or
+            'outputs/report_{year}_{month}.xlsx').
+        date_format: strftime format used for the 'DATE' and '{date}' placeholders.
 
     Returns:
-        str: The path with 'DATE' replaced by today's date (e.g.
-            'outputs/audit_report_2026_07_08.pdf'), or unchanged if the filename
-            has no 'DATE' placeholder (e.g. 'outputs/audit_report.pdf').
+        str: The path with placeholders replaced, or unchanged if no known
+            placeholder is present in the filename.
     """
     p = Path(path)
-    if "DATE" not in p.name:
+    filename = p.name
+
+    if not ("DATE" in filename or "{" in filename):
         return str(p)
 
-    today = datetime.now(UTC).strftime(date_format)
-    return str(p.with_name(p.name.replace("DATE", today)))
+    now = datetime.now(UTC)
+
+    replacements = {
+        "DATE": now.strftime(date_format),
+        "{date}": now.strftime(date_format),
+        "{year}": now.strftime("%Y"),
+        "{month}": now.strftime("%m"),
+        "{day}": now.strftime("%d"),
+        "{hour}": now.strftime("%H"),
+        "{minute}": now.strftime("%M"),
+        "{second}": now.strftime("%S"),
+        "{time}": now.strftime("%H_%M_%S"),
+    }
+
+    new_filename = filename
+    for placeholder, replacement_value in replacements.items():
+        if placeholder in new_filename:
+            new_filename = new_filename.replace(placeholder, replacement_value)
+        upper_placeholder = placeholder.upper()
+        if upper_placeholder in new_filename:
+            new_filename = new_filename.replace(upper_placeholder, replacement_value)
+
+    if new_filename == filename:
+        return str(p)
+
+    return str(p.with_name(new_filename))

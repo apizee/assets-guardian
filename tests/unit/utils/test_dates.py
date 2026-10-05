@@ -143,3 +143,85 @@ def test_add_date_to_filename_replaces_date_placeholder():
 
     assert result == "outputs/audit_report_2026_07_22.pdf"
     mock_datetime.now.assert_called_once_with(UTC)
+
+
+def test_add_date_to_filename_year_month_placeholders():
+    """add_date_to_filename replaces '{year}' and '{month}' with 4-digit year and 2-digit month."""
+    fixed_now = datetime(2026, 9, 29, 14, 30, 45, tzinfo=UTC)
+
+    with patch("assets_guardian.utils.dates.datetime") as mock_datetime:
+        mock_datetime.now.return_value = fixed_now
+
+        result = add_date_to_filename("outputs/output_{year}_{month}.xlsx")
+
+    assert result == "outputs/output_2026_09.xlsx"
+
+
+def test_add_date_to_filename_case_insensitive_tokens():
+    """Curly-brace placeholders are case-insensitive."""
+    fixed_now = datetime(2026, 9, 29, 14, 30, 45, tzinfo=UTC)
+
+    with patch("assets_guardian.utils.dates.datetime") as mock_datetime:
+        mock_datetime.now.return_value = fixed_now
+
+        result = add_date_to_filename("outputs/output_{YEAR}_{MONTH}.xlsx")
+
+    assert result == "outputs/output_2026_09.xlsx"
+
+
+def test_add_date_to_filename_all_tokens():
+    """add_date_to_filename supports {year}, {month}, {day}, {hour}, {minute}, {second}, {time}."""
+    fixed_now = datetime(2026, 9, 5, 8, 7, 9, tzinfo=UTC)
+
+    with patch("assets_guardian.utils.dates.datetime") as mock_datetime:
+        mock_datetime.now.return_value = fixed_now
+
+        result = add_date_to_filename(
+            "outputs/report_{year}_{month}_{day}_{hour}_{minute}_{second}_{time}.xlsx"
+        )
+
+    assert result == "outputs/report_2026_09_05_08_07_09_08_07_09.xlsx"
+
+
+def test_add_date_to_filename_date_token():
+    """add_date_to_filename supports '{date}'."""
+    fixed_now = datetime(2026, 9, 29, 14, 30, 45, tzinfo=UTC)
+
+    with patch("assets_guardian.utils.dates.datetime") as mock_datetime:
+        mock_datetime.now.return_value = fixed_now
+
+        result = add_date_to_filename("outputs/audit_{date}.pdf")
+
+    assert result == "outputs/audit_2026_09_29.pdf"
+
+
+def test_add_date_to_filename_unknown_placeholder_remains_unchanged():
+    """Non-date placeholders in curly braces are preserved without modification."""
+    result = add_date_to_filename("outputs/report_{unknown_var}.xlsx")
+    assert result == "outputs/report_{unknown_var}.xlsx"
+
+
+def test_add_date_to_filename_directory_placeholder_not_substituted():
+    """Only the filename is substituted, parent directory components remain untouched."""
+    fixed_now = datetime(2026, 9, 29, tzinfo=UTC)
+
+    with patch("assets_guardian.utils.dates.datetime") as mock_datetime:
+        mock_datetime.now.return_value = fixed_now
+
+        result = add_date_to_filename("outputs/{year}/report_{month}.xlsx")
+
+    assert result == "outputs/{year}/report_09.xlsx"
+
+
+def test_add_date_to_filename_custom_date_format_param():
+    """date_format parameter applies to both 'DATE' and '{date}'."""
+    fixed_now = datetime(2026, 9, 29, tzinfo=UTC)
+
+    with patch("assets_guardian.utils.dates.datetime") as mock_datetime:
+        mock_datetime.now.return_value = fixed_now
+
+        result_legacy = add_date_to_filename("outputs/report_DATE.xlsx", date_format="%Y-%m")
+        result_placeholder = add_date_to_filename("outputs/report_{date}.xlsx", date_format="%Y-%m")
+
+    assert result_legacy == "outputs/report_2026-09.xlsx"
+    assert result_placeholder == "outputs/report_2026-09.xlsx"
