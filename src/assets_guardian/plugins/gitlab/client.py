@@ -28,10 +28,11 @@ class GitlabClientProvider(IClientProvider):
         token = credentials.get("personnal_access_token") or self.__config.get("token", "")
 
         base_url = self.__config.get("url", "").rstrip("/")
+        sslVerify = self.__config.get("ssl", True)
 
         headers = {"Authorization": f"Bearer {token}"}
 
-        return HttpClient(base_url=base_url, headers=headers)
+        return HttpClient(base_url=base_url, headers=headers, sslVerify=sslVerify)
 
     def health_check(self) -> bool:
         """Verifies that the connection to GitLab works and the token is valid.

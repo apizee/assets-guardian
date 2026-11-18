@@ -31,6 +31,7 @@ cache:
 gitlab:
   prod:
     url: "https://gitlab_prod.company.com/api/v4"
+    ssl: True # Allows to perform "insecure" SSL connections and transfers. All SSL connections attempt to be secure by default.
     credentials:
       personnal_access_token: "${GITLAB_PROD_TOKEN}" # resolved from environment variable
   test:
