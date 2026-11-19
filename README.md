@@ -45,6 +45,9 @@ Install the `assets-guardian` command into an isolated environment on your `PATH
 ```bash
 git clone git@github.com:apizee/assets-guardian.git
 cd assets-guardian/
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
 make install
 ```
 

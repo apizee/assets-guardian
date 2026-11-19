@@ -27,6 +27,7 @@ class HttpClient:
         self,
         base_url: str = "",
         headers: dict[str, str] | None = None,
+        sslVerify: bool = True,
         timeout: int = 30,
         max_retries: int = 3,
     ) -> None:
@@ -37,6 +38,7 @@ class HttpClient:
         if headers:
             self.session.headers.update(headers)
         self.timeout = timeout
+        self.sslVerify = sslVerify
         self.max_retries = max_retries
 
     def _get_full_url(self, url: str) -> str:
@@ -59,8 +61,10 @@ class HttpClient:
             HTTPError: If the request fails after the maximum number of attempts.
             RequestException: For other errors related to the request.
         """
+        
         full_url = self._get_full_url(url)
         kwargs.setdefault("timeout", self.timeout)
+        kwargs.setdefault("verify", self.sslVerify)
 
         for attempt in range(self.max_retries + 1):
             try:

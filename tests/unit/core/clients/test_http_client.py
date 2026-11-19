@@ -4,6 +4,7 @@ import pytest
 import responses
 from requests.exceptions import ConnectionError as RequestsConnectionError
 from requests.exceptions import HTTPError
+from unittest.mock import MagicMock
 
 from assets_guardian.core.clients.http_client import HttpClient
 
@@ -180,3 +181,25 @@ def test_max_retries_minus_one() -> None:
     # This should raise RuntimeError since the loop is skipped
     with pytest.raises(RuntimeError, match="Max retries reached"):
         client.get("test")
+
+
+@responses.activate
+def test_ssl_disable() -> None:
+    http_client_no_ssl = HttpClient(base_url="https://api.example.com", max_retries=2, sslVerify=False)
+    http_client_no_ssl.session = MagicMock()
+    http_client_no_ssl.session.request.return_value = MagicMock(
+        status_code=200
+    )
+    
+    responses.add(responses.GET, "https://api.example.com/test", json={"status": "ok"}, status=200)
+
+    http_client_no_ssl.get("test")
+
+    assert http_client_no_ssl.sslVerify == False
+    http_client_no_ssl.session.request.assert_called_once_with(
+        "GET",
+        "https://api.example.com/test",
+        timeout=30,
+        verify=False
+    )
+    
